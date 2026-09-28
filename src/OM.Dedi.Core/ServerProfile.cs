@@ -50,6 +50,8 @@ public sealed record ProcessProfile
 
     // Emits a local diagnostic event whenever OM_DEDI writes to the PTY.
     public bool TraceInput { get; init; }
+
+    public bool CreateNoWindow { get; init; } = true;
 }
 
 public sealed record TransportProfile

@@ -7,7 +7,8 @@
     "arguments": "Server.dll",
     "mode": "redirected",
     "inputTerminator": "auto",
-    "traceInput": true
+    "traceInput": true,
+    "createNoWindow": false
   },
   "transport": {
     "type": "stdin"

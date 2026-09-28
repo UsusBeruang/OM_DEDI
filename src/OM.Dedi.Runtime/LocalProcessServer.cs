@@ -54,7 +54,7 @@ public sealed class LocalProcessServer : IInteractiveServerProcess, IDisposable
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
-                    CreateNoWindow = true
+                    CreateNoWindow = _profile.Process.CreateNoWindow
                 },
                 EnableRaisingEvents = true
             };
@@ -110,9 +110,28 @@ public sealed class LocalProcessServer : IInteractiveServerProcess, IDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var terminator = _profile.Process.InputTerminator.ToLowerInvariant() switch
+        var mode = _profile.Process.InputTerminator.ToLowerInvariant();
+
+        if (mode == "auto")
         {
-            "auto" => Environment.NewLine,
+            if (_profile.Process.TraceInput)
+            {
+                var escaped = process.StandardInput.NewLine
+                    .Replace("\r", "\\r", StringComparison.Ordinal)
+                    .Replace("\n", "\\n", StringComparison.Ordinal);
+
+                PublishOutput(
+                    ServerOutputStream.StandardError,
+                    $"[OM_DEDI STDIN] WriteLine({command}){escaped}");
+            }
+
+            await process.StandardInput.WriteLineAsync(command);
+            await process.StandardInput.FlushAsync(cancellationToken);
+            return;
+        }
+
+        var terminator = mode switch
+        {
             "cr" => "\r",
             "lf" => "\n",
             "crlf" => "\r\n",
@@ -128,7 +147,7 @@ public sealed class LocalProcessServer : IInteractiveServerProcess, IDisposable
 
             PublishOutput(
                 ServerOutputStream.StandardError,
-                $"[OM_DEDI STDIN] {command}{escaped}");
+                $"[OM_DEDI STDIN] Write({command}{escaped})");
         }
 
         await process.StandardInput.WriteAsync(command + terminator);
