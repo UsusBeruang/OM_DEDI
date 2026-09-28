@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using OM.Dedi.Core;
 using OM.Dedi.Discord;
@@ -188,6 +189,31 @@ while (true)
                 PrintResult(await rawServer.SendRawAsync(rawCommand));
                 break;
 
+            case "probe":
+                if (parts.Length < 3 ||
+                    !servers.TryGetValue(parts[1], out var probeServer))
+                {
+                    Console.WriteLine(
+                        "Usage: probe <server> <raw command>");
+                    break;
+                }
+
+                if (probeServer.State != ServerState.Stopped)
+                {
+                    Console.WriteLine(
+                        "Stop the managed server before running a probe.");
+                    break;
+                }
+
+                var probeCommand = parts.Length == 4
+                    ? $"{parts[2]} {parts[3]}"
+                    : parts[2];
+
+                await RunProcessParityProbeAsync(
+                    probeServer.Profile,
+                    probeCommand);
+                break;
+
             case "quit":
             case "exit":
                 await ShutdownAsync(servers.Values, discord);
@@ -266,6 +292,169 @@ static async Task<DiscordControlService?> TryStartDiscordAsync(
     {
         await service.DisposeAsync();
         throw;
+    }
+}
+
+static async Task RunProcessParityProbeAsync(
+    ServerProfile profile,
+    string command)
+{
+    Console.WriteLine(
+        $"[probe] Starting '{profile.Process.Executable} {profile.Process.Arguments}'...");
+    Console.WriteLine(
+        "[probe] This bypasses OM_DEDI runtime abstractions.");
+    Console.WriteLine(
+        "[probe] After 'Server ready...' there is a 10 second window to connect a client.");
+
+    using var process = new Process
+    {
+        StartInfo = new ProcessStartInfo
+        {
+            FileName = profile.Process.Executable,
+            Arguments = profile.Process.Arguments,
+            WorkingDirectory = profile.Process.WorkingDirectory,
+            UseShellExecute = false,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = false
+        }
+    };
+
+    if (!process.Start())
+    {
+        Console.WriteLine("[probe] Failed to start process.");
+        return;
+    }
+
+    try
+    {
+        using var readyCts = new CancellationTokenSource(
+            TimeSpan.FromSeconds(30));
+
+        var ready = false;
+
+        while (!readyCts.IsCancellationRequested)
+        {
+            var readTask = process.StandardOutput.ReadLineAsync();
+            var completed = await Task.WhenAny(
+                readTask,
+                Task.Delay(250, readyCts.Token));
+
+            if (completed != readTask)
+            {
+                if (process.HasExited)
+                {
+                    Console.WriteLine(
+                        $"[probe] Process exited with code {process.ExitCode}.");
+                    return;
+                }
+
+                continue;
+            }
+
+            var line = await readTask;
+            if (line is null)
+            {
+                Console.WriteLine("[probe] Stdout closed before server became ready.");
+                return;
+            }
+
+            Console.WriteLine($"[probe OUT] {line}");
+
+            if (line.Contains(
+                    "Server ready...",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                ready = true;
+                break;
+            }
+        }
+
+        if (!ready)
+        {
+            Console.WriteLine("[probe] Timed out waiting for 'Server ready...'.");
+            return;
+        }
+
+        for (var seconds = 10; seconds > 0; seconds--)
+        {
+            Console.Write(
+                $"[probe] Sending '{command}' in {seconds,2}s... ");
+            await Task.Delay(1000);
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"[probe] WriteLine({command})");
+
+        await process.StandardInput.WriteLineAsync(command);
+        await process.StandardInput.FlushAsync();
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        var received = 0;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var readTask = process.StandardOutput.ReadLineAsync();
+            var completed = await Task.WhenAny(
+                readTask,
+                Task.Delay(250));
+
+            if (completed != readTask)
+            {
+                if (process.HasExited)
+                {
+                    break;
+                }
+
+                continue;
+            }
+
+            var line = await readTask;
+            if (line is null)
+            {
+                break;
+            }
+
+            received++;
+            Console.WriteLine($"[probe OUT] {line}");
+        }
+
+        Console.WriteLine(
+            received == 0
+                ? "[probe] No stdout lines arrived after the command."
+                : $"[probe] Received {received} stdout line(s) after the command.");
+    }
+    finally
+    {
+        if (!process.HasExited)
+        {
+            try
+            {
+                await process.StandardInput.WriteLineAsync("stop");
+                await process.StandardInput.FlushAsync();
+
+                using var stopCts = new CancellationTokenSource(
+                    TimeSpan.FromSeconds(5));
+
+                try
+                {
+                    await process.WaitForExitAsync(stopCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+            }
+            catch
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+        }
     }
 }
 
@@ -366,6 +555,7 @@ static void PrintHelp()
           restart <server>
           exec    <server> <profile-command> [arguments]
           send    <server> <raw command>
+          probe   <server> <raw command>
           help
           quit
         """);
