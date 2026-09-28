@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OM.Dedi.Core\OM.Dedi.Core.csproj" />
+    <ProjectReference Include="..\OM.Dedi.Runtime\OM.Dedi.Runtime.csproj" />
+  </ItemGroup>
+</Project>

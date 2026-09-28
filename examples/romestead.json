@@ -1,0 +1,23 @@
+{
+  "id": "romestead",
+  "name": "Romestead",
+  "process": {
+    "executable": "E:\\_servers_\\Romestead\\Server.exe",
+    "workingDirectory": "E:\\_servers_\\Romestead",
+    "arguments": ""
+  },
+  "transport": {
+    "type": "stdin"
+  },
+  "stopCommand": "stop",
+  "shutdownTimeoutSeconds": 20,
+  "commands": {
+    "players": "list",
+    "save": "save",
+    "quicksave": "quicksave",
+    "say": "say {args}",
+    "kick": "kick {args}",
+    "ban": "ban {args}",
+    "unban": "unban {args}"
+  }
+}
