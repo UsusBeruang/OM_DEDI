@@ -334,44 +334,31 @@ static async Task RunProcessParityProbeAsync(
 
         var ready = false;
 
-        while (!readyCts.IsCancellationRequested)
+        try
         {
-            var readTask = process.StandardOutput.ReadLineAsync();
-            var completed = await Task.WhenAny(
-                readTask,
-                Task.Delay(250, readyCts.Token));
-
-            if (completed != readTask)
+            while (!ready)
             {
-                if (process.HasExited)
+                var line = await process.StandardOutput.ReadLineAsync(
+                    readyCts.Token);
+
+                if (line is null)
                 {
                     Console.WriteLine(
-                        $"[probe] Process exited with code {process.ExitCode}.");
+                        "[probe] Stdout closed before server became ready.");
                     return;
                 }
 
-                continue;
-            }
+                Console.WriteLine($"[probe OUT] {line}");
 
-            var line = await readTask;
-            if (line is null)
-            {
-                Console.WriteLine("[probe] Stdout closed before server became ready.");
-                return;
-            }
-
-            Console.WriteLine($"[probe OUT] {line}");
-
-            if (line.Contains(
-                    "Server ready...",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                ready = true;
-                break;
+                if (line.Contains(
+                        "Server ready...",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    ready = true;
+                }
             }
         }
-
-        if (!ready)
+        catch (OperationCanceledException)
         {
             Console.WriteLine("[probe] Timed out waiting for 'Server ready...'.");
             return;
@@ -390,34 +377,30 @@ static async Task RunProcessParityProbeAsync(
         await process.StandardInput.WriteLineAsync(command);
         await process.StandardInput.FlushAsync();
 
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
         var received = 0;
 
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            var readTask = process.StandardOutput.ReadLineAsync();
-            var completed = await Task.WhenAny(
-                readTask,
-                Task.Delay(250));
+        using var responseCts = new CancellationTokenSource(
+            TimeSpan.FromSeconds(5));
 
-            if (completed != readTask)
+        try
+        {
+            while (true)
             {
-                if (process.HasExited)
+                var line = await process.StandardOutput.ReadLineAsync(
+                    responseCts.Token);
+
+                if (line is null)
                 {
                     break;
                 }
 
-                continue;
+                received++;
+                Console.WriteLine($"[probe OUT] {line}");
             }
-
-            var line = await readTask;
-            if (line is null)
-            {
-                break;
-            }
-
-            received++;
-            Console.WriteLine($"[probe OUT] {line}");
+        }
+        catch (OperationCanceledException)
+        {
+            // Five-second observation window completed.
         }
 
         Console.WriteLine(
