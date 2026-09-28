@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Discord;
 using Discord.WebSocket;
 using OM.Dedi.Core;
@@ -7,6 +8,10 @@ namespace OM.Dedi.Discord;
 
 public sealed class DiscordControlService : IAsyncDisposable
 {
+    private static readonly Regex NetworkEndpointRegex = new(
+        @"(?<![0-9A-Fa-f:.])(?:(?:\d{1,3}\.){3}\d{1,3}|\[[0-9A-Fa-f:]+\]|[0-9A-Fa-f:]{2,})(?::\d{1,5})?(?![0-9A-Fa-f:.])",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly TimeSpan ConfirmationLifetime = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan PanelLifetime = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan CommandPromptLifetime = TimeSpan.FromMinutes(2);
@@ -1281,6 +1286,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 server.Profile.Name + ". No console output was captured.";
         }
 
+        output = SanitizeDiscordOutput(output);
         output = output.Replace("```", "'''", StringComparison.Ordinal);
         output = Truncate(output, 1700);
 
@@ -1293,6 +1299,9 @@ public sealed class DiscordControlService : IAsyncDisposable
 
         return heading + ":\n```text\n" + output + "\n```";
     }
+
+    private static string SanitizeDiscordOutput(string output) =>
+        NetworkEndpointRegex.Replace(output, "[endpoint hidden]");
 
     private static string FormatDuration(TimeSpan value)
     {
