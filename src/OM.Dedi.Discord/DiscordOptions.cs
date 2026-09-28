@@ -58,12 +58,6 @@ public sealed record DiscordOptions
                     "Discord tier names must not be empty.");
             }
 
-            if (tier.UserIds.Count == 0 && tier.RoleIds.Count == 0)
-            {
-                throw new InvalidOperationException(
-                    $"Discord tier '{name}' must contain at least one userId or roleId.");
-            }
-
             if (tier.Permissions.Count == 0)
             {
                 throw new InvalidOperationException(
