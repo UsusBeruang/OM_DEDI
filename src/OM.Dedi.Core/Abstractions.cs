@@ -21,6 +21,13 @@ public interface IServerProcess
         CancellationToken cancellationToken = default);
 }
 
+public interface IInteractiveServerProcess : IServerProcess
+{
+    Task WriteLineAsync(
+        string command,
+        CancellationToken cancellationToken = default);
+}
+
 public interface ICommandTransport
 {
     string Name { get; }
