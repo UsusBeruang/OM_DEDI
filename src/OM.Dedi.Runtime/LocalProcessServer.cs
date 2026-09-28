@@ -59,10 +59,6 @@ public sealed class LocalProcessServer : IServerProcess, IDisposable
                 EnableRaisingEvents = true
             };
 
-            process.OutputDataReceived += (_, args) =>
-                PublishOutput(ServerOutputStream.StandardOutput, args.Data);
-            process.ErrorDataReceived += (_, args) =>
-                PublishOutput(ServerOutputStream.StandardError, args.Data);
             process.Exited += (_, _) => HandleExit(process);
 
             if (!process.Start())
@@ -77,8 +73,12 @@ public sealed class LocalProcessServer : IServerProcess, IDisposable
             StartedAt = DateTimeOffset.UtcNow;
             State = ServerState.Running;
 
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
+            _ = PumpOutputAsync(
+                process.StandardOutput,
+                ServerOutputStream.StandardOutput);
+            _ = PumpOutputAsync(
+                process.StandardError,
+                ServerOutputStream.StandardError);
         }
         catch
         {
@@ -158,9 +158,40 @@ public sealed class LocalProcessServer : IServerProcess, IDisposable
         }
     }
 
+    private async Task PumpOutputAsync(
+        StreamReader reader,
+        ServerOutputStream stream)
+    {
+        var buffer = new char[1024];
+
+        try
+        {
+            while (true)
+            {
+                var read = await reader.ReadAsync(buffer.AsMemory());
+                if (read == 0)
+                {
+                    break;
+                }
+
+                // Interactive server consoles may write prompts/results without
+                // terminating them with a newline. Publish each raw chunk so
+                // command capture does not depend on line-oriented output.
+                PublishOutput(
+                    stream,
+                    new string(buffer, 0, read));
+            }
+        }
+        catch (Exception ex) when (
+            ex is IOException or ObjectDisposedException)
+        {
+            // The redirected pipe can close while the process is exiting.
+        }
+    }
+
     private void PublishOutput(ServerOutputStream stream, string? line)
     {
-        if (line is null)
+        if (string.IsNullOrEmpty(line))
         {
             return;
         }
