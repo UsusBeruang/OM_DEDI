@@ -2,8 +2,4 @@
   <ItemGroup>
     <ProjectReference Include="..\OM.Dedi.Core\OM.Dedi.Core.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Porta.Pty" Version="1.0.7" />
-  </ItemGroup>
 </Project>
