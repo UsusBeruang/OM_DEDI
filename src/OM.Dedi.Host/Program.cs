@@ -295,10 +295,34 @@ static void PrintStatus(IGameServer server)
 
 static void PrintResult(CommandResult result)
 {
-    Console.WriteLine(
-        result.Succeeded
-            ? "Command sent."
-            : $"Command failed: {result.Error}");
+    if (!result.Succeeded)
+    {
+        Console.WriteLine($"Command failed: {result.Error}");
+        return;
+    }
+
+    if (result.Output is null)
+    {
+        Console.WriteLine("Command sent. Capture is not configured for this command.");
+        return;
+    }
+
+    if (result.Output.Count == 0)
+    {
+        Console.WriteLine("Command sent. Capture completed, but no console output was received.");
+        return;
+    }
+
+    Console.WriteLine($"Captured {result.Output.Count} console line(s):");
+
+    foreach (var output in result.Output)
+    {
+        var prefix = output.Stream == ServerOutputStream.StandardError
+            ? "ERR"
+            : "OUT";
+
+        Console.WriteLine($"[{prefix}] {output.Line}");
+    }
 }
 
 static async Task ShutdownAsync(
