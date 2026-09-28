@@ -3,7 +3,7 @@ using OM.Dedi.Core;
 
 namespace OM.Dedi.Runtime;
 
-public sealed class LocalProcessServer : IServerProcess, IDisposable
+public sealed class LocalProcessServer : IInteractiveServerProcess, IDisposable
 {
     private readonly ServerProfile _profile;
     private readonly SemaphoreSlim _lifecycleLock = new(1, 1);
