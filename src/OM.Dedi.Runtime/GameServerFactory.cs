@@ -6,14 +6,7 @@ public static class GameServerFactory
 {
     public static IGameServer Create(ServerProfile profile)
     {
-        IInteractiveServerProcess process =
-            profile.Process.Mode.ToLowerInvariant() switch
-            {
-                "redirected" => new LocalProcessServer(profile),
-                "pty" or "conpty" => new PtyProcessServer(profile),
-                var mode => throw new NotSupportedException(
-                    $"Process mode '{mode}' is not supported.")
-            };
+        IInteractiveServerProcess process = new LocalProcessServer(profile);
 
         ICommandTransport transport =
             profile.Transport.Type.ToLowerInvariant() switch
