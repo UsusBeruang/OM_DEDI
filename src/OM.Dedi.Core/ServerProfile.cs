@@ -38,22 +38,7 @@ public sealed record ProcessProfile
 
     public string Arguments { get; init; } = string.Empty;
 
-    public string Mode { get; init; } = "redirected";
-
-    public int TerminalColumns { get; init; } = 120;
-
-    public int TerminalRows { get; init; } = 30;
-
-    // Input terminator: "auto", "cr", "lf", or "crlf".
-    // "auto" uses the platform newline for redirected stdin and CR for PTY.
-    public string InputTerminator { get; init; } = "auto";
-
-    // Emits a local diagnostic event whenever OM_DEDI writes to the server input stream.
-    public bool TraceInput { get; init; }
-
-    // Keep the Windows console attached by default. Some dedicated servers
-    // accept redirected stdin only while a console is present.
-    public bool CreateNoWindow { get; init; } = false;
+    public bool CreateNoWindow { get; init; }
 
     // Remove inherited environment variables before launching the server process.
     public List<string> RemoveEnvironmentVariables { get; init; } = [];
