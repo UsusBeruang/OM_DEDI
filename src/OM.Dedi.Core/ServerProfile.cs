@@ -43,6 +43,12 @@ public sealed record ProcessProfile
     public int TerminalColumns { get; init; } = 120;
 
     public int TerminalRows { get; init; } = 30;
+
+    // PTY input terminator: "cr", "lf", or "crlf".
+    public string InputTerminator { get; init; } = "cr";
+
+    // Emits a local diagnostic event whenever OM_DEDI writes to the PTY.
+    public bool TraceInput { get; init; }
 }
 
 public sealed record TransportProfile

@@ -7,7 +7,9 @@
     "arguments": "",
     "mode": "pty",
     "terminalColumns": 120,
-    "terminalRows": 30
+    "terminalRows": 30,
+    "inputTerminator": "cr",
+    "traceInput": true
   },
   "transport": {
     "type": "stdin"

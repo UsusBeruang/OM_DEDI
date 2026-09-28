@@ -104,7 +104,29 @@ public sealed class PtyProcessServer : IInteractiveServerProcess, IDisposable
                 $"Server '{_profile.Id}' is not running.");
         }
 
-        var bytes = Encoding.UTF8.GetBytes(command + "\r");
+        var terminator = _profile.Process.InputTerminator.ToLowerInvariant() switch
+        {
+            "cr" => "\r",
+            "lf" => "\n",
+            "crlf" => "\r\n",
+            var value => throw new InvalidOperationException(
+                $"Unsupported PTY input terminator '{value}'.")
+        };
+
+        var bytes = Encoding.UTF8.GetBytes(command + terminator);
+
+        if (_profile.Process.TraceInput)
+        {
+            var escaped = terminator
+                .Replace("\r", "\\r", StringComparison.Ordinal)
+                .Replace("\n", "\\n", StringComparison.Ordinal);
+
+            OutputReceived?.Invoke(
+                new ServerOutput(
+                    DateTimeOffset.UtcNow,
+                    ServerOutputStream.StandardError,
+                    $"[OM_DEDI PTY IN] {command}{escaped} ({bytes.Length} bytes)"));
+        }
 
         await connection.WriterStream.WriteAsync(
             bytes,
