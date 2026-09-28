@@ -203,24 +203,17 @@ public sealed class LocalProcessServer : IInteractiveServerProcess, IDisposable
         StreamReader reader,
         ServerOutputStream stream)
     {
-        var buffer = new char[1024];
-
         try
         {
             while (true)
             {
-                var read = await reader.ReadAsync(buffer.AsMemory());
-                if (read == 0)
+                var line = await reader.ReadLineAsync();
+                if (line is null)
                 {
                     break;
                 }
 
-                // Interactive server consoles may write prompts/results without
-                // terminating them with a newline. Publish each raw chunk so
-                // command capture does not depend on line-oriented output.
-                PublishOutput(
-                    stream,
-                    new string(buffer, 0, read));
+                PublishOutput(stream, line);
             }
         }
         catch (Exception ex) when (
