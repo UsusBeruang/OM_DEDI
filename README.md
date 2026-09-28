@@ -28,12 +28,14 @@ A frontend does not need to know whether a game uses stdin, RCON, Docker exec, T
 - local process start / stop / restart;
 - redirected stdin command delivery;
 - streamed stdout and stderr;
+- captured command responses for profile commands that opt in;
+- per-profile child-process environment sanitization/overrides;
 - graceful stop command with forced process-tree termination fallback;
 - named server-profile commands;
 - local raw console access for development;
 - optional Discord control panel launched by a single `/dedi` command;
 - mouse-driven server start/manage flows using buttons and select menus;
-- Discord user/role allowlists with default-deny behavior;
+- owner plus customizable Discord user/role permission tiers with default-deny behavior;
 - confirmation buttons for remote stop/restart;
 - profile-defined command picker with modals for commands that require arguments;
 - no raw Discord console command.
@@ -88,6 +90,8 @@ quit
 ```
 
 The local `send` command intentionally remains a development/admin surface. It is not exposed through Discord.
+
+Profiles can remove or override inherited child-process environment variables when a dedicated server requires a clean launch environment. The Romestead example removes `DOTNET_TieredCompilation` and `DOTNET_ROOT_X64` because those variables interfere with its redirected console command handling when OM_DEDI itself is launched through `dotnet run`.
 
 ## Discord setup
 
@@ -182,7 +186,7 @@ The old `allowedUserIds` / `allowedRoleIds` configuration has been replaced by t
 
 ## Next
 
-- structured response capture for commands such as player listing;
-- test coverage for lifecycle, command expansion, authorization, and dashboard interactions;
+- structured Romestead player parsing and player actions;
+- test coverage for lifecycle, command capture, authorization, and dashboard interactions;
 - RCON transport without changing the Discord or CLI contract;
 - server-event parsing and Discord notifications.
