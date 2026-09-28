@@ -248,11 +248,35 @@ public sealed class DiscordControlService : IAsyncDisposable
         }
 
         await command.DeferAsync(ephemeral: true);
-        await server.StartAsync();
 
-        await command.FollowupAsync(
-            $"Started {server.Profile.Id}. State: {server.State}.",
-            ephemeral: true);
+        _ = Task.Run(
+            () => RunStartServerAsync(command, server));
+    }
+
+    private static async Task RunStartServerAsync(
+        SocketSlashCommand command,
+        IGameServer server)
+    {
+        try
+        {
+            await server.StartAsync();
+
+            await command.ModifyOriginalResponseAsync(
+                properties =>
+                {
+                    properties.Content =
+                        $"Started {server.Profile.Id}. State: {server.State}.";
+                });
+        }
+        catch (Exception ex)
+        {
+            await command.ModifyOriginalResponseAsync(
+                properties =>
+                {
+                    properties.Content =
+                        $"Start failed for {server.Profile.Id}: {ex.Message}";
+                });
+        }
     }
 
     private async Task RequestConfirmationAsync(
@@ -396,8 +420,23 @@ public sealed class DiscordControlService : IAsyncDisposable
             return;
         }
 
-        await component.DeferAsync(ephemeral: true);
+        await component.UpdateAsync(
+            properties =>
+            {
+                properties.Content =
+                    $"{pending.Action} in progress for {pending.ServerId}...";
+                properties.Components = new ComponentBuilder().Build();
+            });
 
+        _ = Task.Run(
+            () => RunConfirmedOperationAsync(component, pending, server));
+    }
+
+    private static async Task RunConfirmedOperationAsync(
+        SocketMessageComponent component,
+        PendingConfirmation pending,
+        IGameServer server)
+    {
         try
         {
             switch (pending.Action)
