@@ -37,6 +37,12 @@ public sealed record ProcessProfile
     public string WorkingDirectory { get; init; } = ".";
 
     public string Arguments { get; init; } = string.Empty;
+
+    public string Mode { get; init; } = "redirected";
+
+    public int TerminalColumns { get; init; } = 120;
+
+    public int TerminalRows { get; init; } = 30;
 }
 
 public sealed record TransportProfile
