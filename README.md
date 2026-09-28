@@ -31,9 +31,11 @@ A frontend does not need to know whether a game uses stdin, RCON, Docker exec, T
 - graceful stop command with forced process-tree termination fallback;
 - named server-profile commands;
 - local raw console access for development;
-- optional Discord slash-command control;
+- optional Discord control panel launched by a single `/dedi` command;
+- mouse-driven server start/manage flows using buttons and select menus;
 - Discord user/role allowlists with default-deny behavior;
 - confirmation buttons for remote stop/restart;
+- profile-defined command picker with modals for commands that require arguments;
 - no raw Discord console command.
 
 ## Repository layout
@@ -104,25 +106,22 @@ Optionally point to a different config file:
 $env:OM_DEDI_DISCORD_CONFIG = "E:\_servers_\om_dedi\discord.json"
 ```
 
-Then run OM_DEDI normally. The bot registers a guild-scoped `/dedi` command.
+Then run OM_DEDI normally. The bot registers one guild-scoped `/dedi` command.
 
-Available Discord subcommands:
+Running `/dedi` opens an ephemeral control panel. From there you can:
 
-```text
-/dedi servers
-/dedi status  server:<id>
-/dedi start   server:<id>
-/dedi stop    server:<id>
-/dedi restart server:<id>
-/dedi exec    server:<id> command:<profile-command> arguments:<optional>
-```
+- start stopped/faulted server profiles from a dropdown;
+- select and manage currently running servers;
+- restart or stop a server with confirmation;
+- refresh server state and view PID/uptime/transport information;
+- run commands explicitly declared in the selected server profile;
+- fill in a Discord modal when a profile command contains `{args}`.
 
-`stop` and `restart` require confirmation. `exec` can only invoke commands explicitly declared in that server's profile. Remote raw console execution is intentionally unavailable.
+Remote raw console execution is intentionally unavailable.
 
 ## Next
 
 - structured response capture for commands such as player listing;
-- server and command autocomplete in Discord;
-- test coverage for lifecycle, command expansion, and authorization;
+- test coverage for lifecycle, command expansion, authorization, and dashboard interactions;
 - RCON transport without changing the Discord or CLI contract;
 - server-event parsing and Discord notifications.
