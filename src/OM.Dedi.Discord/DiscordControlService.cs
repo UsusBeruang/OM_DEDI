@@ -46,6 +46,7 @@ public sealed class DiscordControlService : IAsyncDisposable
         _client.Ready += OnReadyAsync;
         _client.SlashCommandExecuted += OnSlashCommandAsync;
         _client.ButtonExecuted += OnButtonAsync;
+        _client.AutocompleteExecuted += OnAutocompleteAsync;
     }
 
     public async Task StartAsync()
@@ -147,7 +148,70 @@ public sealed class DiscordControlService : IAsyncDisposable
                     .WithName("server")
                     .WithDescription("OM_DEDI server id")
                     .WithType(ApplicationCommandOptionType.String)
-                    .WithRequired(true));
+                    .WithRequired(true)
+                    .WithAutocomplete(true));
+
+    private async Task OnAutocompleteAsync(
+        SocketAutocompleteInteraction interaction)
+    {
+        if (!_authorization.IsAllowed(interaction) ||
+            !string.Equals(
+                interaction.Data.Current.Name,
+                "server",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            await interaction.RespondAsync(Array.Empty<AutocompleteResult>());
+            return;
+        }
+
+        var action = interaction.Data.Options
+            .FirstOrDefault(
+                option => option.Type == ApplicationCommandOptionType.SubCommand)
+            ?.Name;
+
+        var input = interaction.Data.Current.Value?.ToString() ?? string.Empty;
+
+        var candidates = action switch
+        {
+            "start" => _servers.Values.Where(
+                server => server.State is ServerState.Stopped or ServerState.Faulted),
+            "stop" or "restart" or "exec" => _servers.Values.Where(
+                server => server.State == ServerState.Running),
+            "status" => _servers.Values,
+            _ => _servers.Values
+        };
+
+        var results = candidates
+            .Where(
+                server =>
+                    string.IsNullOrWhiteSpace(input) ||
+                    server.Profile.Id.Contains(
+                        input,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    server.Profile.Name.Contains(
+                        input,
+                        StringComparison.OrdinalIgnoreCase))
+            .OrderBy(
+                server => server.Profile.Name,
+                StringComparer.OrdinalIgnoreCase)
+            .Take(25)
+            .Select(
+                server => new AutocompleteResult(
+                    FormatAutocompleteName(server),
+                    server.Profile.Id));
+
+        await interaction.RespondAsync(results);
+    }
+
+    private static string FormatAutocompleteName(IGameServer server)
+    {
+        var label =
+            $"{server.Profile.Name} ({server.Profile.Id}) - {server.State}";
+
+        return label.Length <= 100
+            ? label
+            : label[..100];
+    }
 
     private async Task OnSlashCommandAsync(SocketSlashCommand command)
     {

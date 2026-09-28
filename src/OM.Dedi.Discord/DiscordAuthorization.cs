@@ -25,6 +25,11 @@ internal sealed class DiscordAuthorization
         component.User is SocketGuildUser user &&
         IsAllowed(user);
 
+    public bool IsAllowed(SocketAutocompleteInteraction interaction) =>
+        interaction.GuildId == _options.GuildId &&
+        interaction.User is SocketGuildUser user &&
+        IsAllowed(user);
+
     private bool IsAllowed(SocketGuildUser user)
     {
         if (_allowedUsers.Contains(user.Id))
