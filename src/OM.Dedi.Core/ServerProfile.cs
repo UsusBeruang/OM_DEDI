@@ -54,6 +54,13 @@ public sealed record ProcessProfile
     // Keep the Windows console attached by default. Some dedicated servers
     // accept redirected stdin only while a console is present.
     public bool CreateNoWindow { get; init; } = false;
+
+    // Remove inherited environment variables before launching the server process.
+    public List<string> RemoveEnvironmentVariables { get; init; } = [];
+
+    // Explicit environment overrides applied after removals.
+    public Dictionary<string, string> EnvironmentVariables { get; init; } =
+        new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed record TransportProfile

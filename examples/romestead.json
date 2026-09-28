@@ -8,7 +8,12 @@
     "mode": "redirected",
     "inputTerminator": "auto",
     "traceInput": true,
-    "createNoWindow": false
+    "createNoWindow": false,
+    "removeEnvironmentVariables": [
+      "DOTNET_TieredCompilation",
+      "DOTNET_ROOT_X64"
+    ],
+    "environmentVariables": {}
   },
   "transport": {
     "type": "stdin"

@@ -43,19 +43,37 @@ public sealed class LocalProcessServer : IInteractiveServerProcess, IDisposable
 
             State = ServerState.Starting;
 
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = _profile.Process.Executable,
+                Arguments = _profile.Process.Arguments,
+                WorkingDirectory = _profile.Process.WorkingDirectory,
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = _profile.Process.CreateNoWindow
+            };
+
+            foreach (var key in _profile.Process.RemoveEnvironmentVariables)
+            {
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    startInfo.Environment.Remove(key);
+                }
+            }
+
+            foreach (var (key, value) in _profile.Process.EnvironmentVariables)
+            {
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    startInfo.Environment[key] = value;
+                }
+            }
+
             var process = new Process
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = _profile.Process.Executable,
-                    Arguments = _profile.Process.Arguments,
-                    WorkingDirectory = _profile.Process.WorkingDirectory,
-                    UseShellExecute = false,
-                    RedirectStandardInput = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = _profile.Process.CreateNoWindow
-                },
+                StartInfo = startInfo,
                 EnableRaisingEvents = true
             };
 
