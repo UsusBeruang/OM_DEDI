@@ -134,7 +134,8 @@ public sealed class DiscordControlService : IAsyncDisposable
 
         await command.RespondAsync(
             BuildDashboardText(),
-            components: BuildDashboardComponents(),
+            components: BuildDashboardComponents(
+                (SocketGuildUser)command.User),
             ephemeral: true);
     }
 
@@ -362,7 +363,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                         "Completed " + pending.Action + " for " +
                         server.Profile.Name + ". State: " + server.State +
                         ".\n\n" + BuildDashboardText();
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
         }
         catch (Exception ex)
@@ -373,7 +374,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                     properties.Content =
                         "Operation failed: " + ex.Message +
                         "\n\n" + BuildDashboardText();
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
         }
     }
@@ -448,6 +449,16 @@ public sealed class DiscordControlService : IAsyncDisposable
             return;
         }
 
+        if (!_authorization.HasPermission(
+                modal,
+                DiscordPermissions.Command(prompt.CommandName)))
+        {
+            await modal.RespondAsync(
+                "Your tier no longer allows this server command.",
+                ephemeral: true);
+            return;
+        }
+
         if (!_servers.TryGetValue(prompt.ServerId, out var server) ||
             server.State != ServerState.Running)
         {
@@ -477,12 +488,22 @@ public sealed class DiscordControlService : IAsyncDisposable
             properties =>
             {
                 properties.Content = BuildDashboardText();
-                properties.Components = BuildDashboardComponents();
+                properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
             });
     }
 
     private async Task ShowStartableServersAsync(SocketMessageComponent component)
     {
+        if (!_authorization.HasPermission(
+                component,
+                DiscordPermissions.ServerStart))
+        {
+            await component.RespondAsync(
+                "Your tier does not allow starting servers.",
+                ephemeral: true);
+            return;
+        }
+
         var servers = GetStartableServers();
         if (servers.Count == 0)
         {
@@ -491,7 +512,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 {
                     properties.Content =
                         "No stopped or faulted server profiles are currently available to start.";
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
             return;
         }
@@ -516,7 +537,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 properties =>
                 {
                     properties.Content = "No managed server is currently running.";
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
             return;
         }
@@ -536,6 +557,16 @@ public sealed class DiscordControlService : IAsyncDisposable
         SocketMessageComponent component,
         string serverId)
     {
+        if (!_authorization.HasPermission(
+                component,
+                DiscordPermissions.ServerStart))
+        {
+            await component.RespondAsync(
+                "Your tier does not allow starting servers.",
+                ephemeral: true);
+            return;
+        }
+
         if (!_servers.TryGetValue(serverId, out var server))
         {
             await component.RespondAsync(
@@ -551,7 +582,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 {
                     properties.Content =
                         server.Profile.Name + " is currently " + server.State + ".";
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
             return;
         }
@@ -581,7 +612,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                         "Started " + server.Profile.Name +
                         ". State: " + server.State + ".\n\n" +
                         BuildDashboardText();
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
         }
         catch (Exception ex)
@@ -593,7 +624,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                         "Start failed for " + server.Profile.Name +
                         ": " + ex.Message + "\n\n" +
                         BuildDashboardText();
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
         }
     }
@@ -609,7 +640,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 properties =>
                 {
                     properties.Content = "That server is no longer running.";
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
             return;
         }
@@ -624,7 +655,10 @@ public sealed class DiscordControlService : IAsyncDisposable
             properties =>
             {
                 properties.Content = BuildServerPanelText(server);
-                properties.Components = BuildServerPanelComponents(nonce, server);
+                properties.Components = BuildServerPanelComponents(
+                        nonce,
+                        server,
+                        (SocketGuildUser)component.User);
             });
     }
 
@@ -650,7 +684,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 properties =>
                 {
                     properties.Content = "This server panel has expired.";
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
             return;
         }
@@ -661,7 +695,10 @@ public sealed class DiscordControlService : IAsyncDisposable
                 properties =>
                 {
                     properties.Content = BuildServerPanelText(server);
-                    properties.Components = BuildServerPanelComponents(nonce, server);
+                    properties.Components = BuildServerPanelComponents(
+                        nonce,
+                        server,
+                        (SocketGuildUser)component.User);
                 });
             return;
         }
@@ -670,6 +707,18 @@ public sealed class DiscordControlService : IAsyncDisposable
         {
             await component.RespondAsync(
                 "Unsupported server action.",
+                ephemeral: true);
+            return;
+        }
+
+        var requiredPermission = action == "stop"
+            ? DiscordPermissions.ServerStop
+            : DiscordPermissions.ServerRestart;
+
+        if (!_authorization.HasPermission(component, requiredPermission))
+        {
+            await component.RespondAsync(
+                $"Your tier does not allow server {action}.",
                 ephemeral: true);
             return;
         }
@@ -705,7 +754,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 {
                     properties.Content =
                         "This confirmation has expired or was already used.";
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
             return;
         }
@@ -718,7 +767,24 @@ public sealed class DiscordControlService : IAsyncDisposable
                     properties.Content =
                         "Cancelled " + pending.Action +
                         " for " + pending.ServerId + ".";
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
+                });
+            return;
+        }
+
+        var requiredPermission = pending.Action == "stop"
+            ? DiscordPermissions.ServerStop
+            : DiscordPermissions.ServerRestart;
+
+        if (!_authorization.HasPermission(component, requiredPermission))
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "Your tier no longer allows this operation.";
+                    properties.Components = BuildDashboardComponents(
+                        (SocketGuildUser)component.User);
                 });
             return;
         }
@@ -730,7 +796,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 {
                     properties.Content =
                         "The requested server is no longer available.";
-                    properties.Components = BuildDashboardComponents();
+                    properties.Components = BuildDashboardComponents((SocketGuildUser)component.User);
                 });
             return;
         }
@@ -764,6 +830,16 @@ public sealed class DiscordControlService : IAsyncDisposable
         {
             await component.RespondAsync(
                 "This server panel has expired.",
+                ephemeral: true);
+            return;
+        }
+
+        if (!_authorization.HasPermission(
+                component,
+                DiscordPermissions.Command(commandName)))
+        {
+            await component.RespondAsync(
+                "Your tier does not allow this server command.",
                 ephemeral: true);
             return;
         }
@@ -845,8 +921,11 @@ public sealed class DiscordControlService : IAsyncDisposable
         }
     }
 
-    private MessageComponent BuildDashboardComponents()
+    private MessageComponent BuildDashboardComponents(SocketGuildUser user)
     {
+        var canStart = _authorization.HasPermission(
+            user,
+            DiscordPermissions.ServerStart);
         var hasStartable = GetStartableServers().Count > 0;
         var hasRunning = GetRunningServers().Count > 0;
 
@@ -855,7 +934,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 "Start Server",
                 DashboardStartId,
                 ButtonStyle.Success,
-                disabled: !hasStartable,
+                disabled: !canStart || !hasStartable,
                 row: 0)
             .WithButton(
                 "Manage Running",
@@ -906,21 +985,39 @@ public sealed class DiscordControlService : IAsyncDisposable
 
     private MessageComponent BuildServerPanelComponents(
         string nonce,
-        IGameServer server)
+        IGameServer server,
+        SocketGuildUser user)
     {
-        var builder = new ComponentBuilder()
-            .WithButton(
+        var canRestart = _authorization.HasPermission(
+            user,
+            DiscordPermissions.ServerRestart);
+        var canStop = _authorization.HasPermission(
+            user,
+            DiscordPermissions.ServerStop);
+
+        var builder = new ComponentBuilder();
+
+        if (canRestart)
+        {
+            builder.WithButton(
                 "Restart",
                 "dedi:panel:restart:" + nonce,
                 ButtonStyle.Primary,
                 disabled: server.State != ServerState.Running,
-                row: 0)
-            .WithButton(
+                row: 0);
+        }
+
+        if (canStop)
+        {
+            builder.WithButton(
                 "Stop",
                 "dedi:panel:stop:" + nonce,
                 ButtonStyle.Danger,
                 disabled: server.State != ServerState.Running,
-                row: 0)
+                row: 0);
+        }
+
+        builder
             .WithButton(
                 "Refresh",
                 "dedi:panel:refresh:" + nonce,
@@ -932,7 +1029,14 @@ public sealed class DiscordControlService : IAsyncDisposable
                 ButtonStyle.Secondary,
                 row: 0);
 
-        if (server.Profile.Commands.Count > 0 &&
+        var permittedCommands = server.Profile.Commands
+            .Where(
+                pair => _authorization.HasPermission(
+                    user,
+                    DiscordPermissions.Command(pair.Key)))
+            .ToList();
+
+        if (permittedCommands.Count > 0 &&
             server.State == ServerState.Running)
         {
             var menu = new SelectMenuBuilder()
@@ -941,7 +1045,7 @@ public sealed class DiscordControlService : IAsyncDisposable
                 .WithMinValues(1)
                 .WithMaxValues(1);
 
-            foreach (var command in server.Profile.Commands
+            foreach (var command in permittedCommands
                          .Where(pair => pair.Key.Length <= 100)
                          .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
                          .Take(25))

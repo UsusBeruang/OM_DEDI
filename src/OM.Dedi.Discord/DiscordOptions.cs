@@ -6,9 +6,29 @@ public sealed record DiscordOptions
 
     public string CommandName { get; init; } = "dedi";
 
-    public List<ulong> AllowedUserIds { get; init; } = [];
+    // Convenience for the common single-owner case.
+    public ulong? OwnerUserId { get; init; }
 
-    public List<ulong> AllowedRoleIds { get; init; } = [];
+    // Optional additional owners. Owners always bypass every permission check.
+    public List<ulong> OwnerUserIds { get; init; } = [];
+
+    // Arbitrary named tiers. Matching multiple tiers combines their permissions.
+    public Dictionary<string, DiscordTierOptions> Tiers { get; init; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlySet<ulong> GetOwnerUserIds()
+    {
+        var owners = OwnerUserIds
+            .Where(id => id != 0)
+            .ToHashSet();
+
+        if (OwnerUserId.HasValue && OwnerUserId.Value != 0)
+        {
+            owners.Add(OwnerUserId.Value);
+        }
+
+        return owners;
+    }
 
     public void Validate()
     {
@@ -24,10 +44,40 @@ public sealed record DiscordOptions
                 "Discord CommandName must not be empty.");
         }
 
-        if (AllowedUserIds.Count == 0 && AllowedRoleIds.Count == 0)
+        if (GetOwnerUserIds().Count == 0)
         {
             throw new InvalidOperationException(
-                "Discord control is default-deny. Configure at least one allowed user or role.");
+                "Discord control requires at least one ownerUserId or ownerUserIds entry.");
+        }
+
+        foreach (var (name, tier) in Tiers)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new InvalidOperationException(
+                    "Discord tier names must not be empty.");
+            }
+
+            if (tier.UserIds.Count == 0 && tier.RoleIds.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Discord tier '{name}' must contain at least one userId or roleId.");
+            }
+
+            if (tier.Permissions.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Discord tier '{name}' must define at least one permission.");
+            }
         }
     }
+}
+
+public sealed record DiscordTierOptions
+{
+    public List<ulong> UserIds { get; init; } = [];
+
+    public List<ulong> RoleIds { get; init; } = [];
+
+    public List<string> Permissions { get; init; } = [];
 }

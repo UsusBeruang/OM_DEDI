@@ -1,8 +1,44 @@
 {
   "guildId": 123456789012345678,
   "commandName": "dedi",
-  "allowedUserIds": [
-    123456789012345678
-  ],
-  "allowedRoleIds": []
+
+  "ownerUserId": 111111111111111111,
+
+  "tiers": {
+    "admin": {
+      "userIds": [
+        222222222222222222
+      ],
+      "roleIds": [],
+      "permissions": [
+        "dashboard.view",
+        "server.*",
+        "command:*"
+      ]
+    },
+
+    "moderator": {
+      "userIds": [],
+      "roleIds": [
+        333333333333333333
+      ],
+      "permissions": [
+        "dashboard.view",
+        "command:players",
+        "command:say",
+        "command:kick"
+      ]
+    },
+
+    "viewer": {
+      "userIds": [],
+      "roleIds": [
+        444444444444444444
+      ],
+      "permissions": [
+        "dashboard.view",
+        "command:players"
+      ]
+    }
+  }
 }
