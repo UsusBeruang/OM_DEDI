@@ -16,6 +16,18 @@ public sealed record ServerProfile
 
     public Dictionary<string, string> Commands { get; init; } =
         new(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, CommandCaptureProfile> CommandCaptures { get; init; } =
+        new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed record CommandCaptureProfile
+{
+    public int TimeoutMs { get; init; } = 2500;
+
+    public int QuietPeriodMs { get; init; } = 400;
+
+    public bool IncludeStandardError { get; init; }
 }
 
 public sealed record ProcessProfile

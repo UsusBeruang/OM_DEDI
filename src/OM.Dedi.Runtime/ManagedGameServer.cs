@@ -7,6 +7,7 @@ public sealed class ManagedGameServer : IGameServer
     private readonly IServerProcess _process;
     private readonly ICommandTransport _transport;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
+    private readonly SemaphoreSlim _commandLock = new(1, 1);
 
     public ManagedGameServer(
         ServerProfile profile,
@@ -56,9 +57,17 @@ public sealed class ManagedGameServer : IGameServer
             if (!string.IsNullOrWhiteSpace(Profile.StopCommand) &&
                 _transport.IsAvailable)
             {
-                await _transport.SendAsync(
-                    Profile.StopCommand,
-                    cancellationToken);
+                await _commandLock.WaitAsync(cancellationToken);
+                try
+                {
+                    await _transport.SendAsync(
+                        Profile.StopCommand,
+                        cancellationToken);
+                }
+                finally
+                {
+                    _commandLock.Release();
+                }
 
                 var exited = await _process.WaitForExitAsync(
                     TimeSpan.FromSeconds(Profile.ShutdownTimeoutSeconds),
@@ -97,12 +106,46 @@ public sealed class ManagedGameServer : IGameServer
         }
 
         var command = ExpandCommand(template, arguments);
-        return await SendRawAsync(command, cancellationToken);
+
+        await _commandLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (Profile.CommandCaptures.TryGetValue(
+                    commandName,
+                    out var captureProfile))
+            {
+                return await ExecuteCapturedAsync(
+                    command,
+                    captureProfile,
+                    cancellationToken);
+            }
+
+            return await SendRawCoreAsync(command, cancellationToken);
+        }
+        finally
+        {
+            _commandLock.Release();
+        }
     }
 
     public async Task<CommandResult> SendRawAsync(
         string command,
         CancellationToken cancellationToken = default)
+    {
+        await _commandLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await SendRawCoreAsync(command, cancellationToken);
+        }
+        finally
+        {
+            _commandLock.Release();
+        }
+    }
+
+    private async Task<CommandResult> SendRawCoreAsync(
+        string command,
+        CancellationToken cancellationToken)
     {
         if (!_transport.IsAvailable)
         {
@@ -118,6 +161,96 @@ public sealed class ManagedGameServer : IGameServer
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return CommandResult.Failure(ex.Message);
+        }
+    }
+
+    private async Task<CommandResult> ExecuteCapturedAsync(
+        string command,
+        CommandCaptureProfile captureProfile,
+        CancellationToken cancellationToken)
+    {
+        if (!_transport.IsAvailable)
+        {
+            return CommandResult.Failure(
+                $"Transport '{_transport.Name}' is unavailable for '{Profile.Id}'.");
+        }
+
+        var output = new List<ServerOutput>();
+        var gate = new object();
+        DateTimeOffset? lastOutputAt = null;
+        var captureActive = false;
+
+        void Capture(ServerOutput item)
+        {
+            if (!captureActive ||
+                (!captureProfile.IncludeStandardError &&
+                 item.Stream == ServerOutputStream.StandardError))
+            {
+                return;
+            }
+
+            lock (gate)
+            {
+                output.Add(item);
+                lastOutputAt = DateTimeOffset.UtcNow;
+            }
+        }
+
+        OutputReceived += Capture;
+
+        try
+        {
+            captureActive = true;
+            await _transport.SendAsync(command, cancellationToken);
+
+            var timeout = TimeSpan.FromMilliseconds(
+                Math.Max(100, captureProfile.TimeoutMs));
+            var quietPeriod = TimeSpan.FromMilliseconds(
+                Math.Max(50, captureProfile.QuietPeriodMs));
+            var startedAt = DateTimeOffset.UtcNow;
+
+            while (DateTimeOffset.UtcNow - startedAt < timeout)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(
+                        Math.Min(100, quietPeriod.TotalMilliseconds)),
+                    cancellationToken);
+
+                DateTimeOffset? observedLastOutput;
+                int outputCount;
+
+                lock (gate)
+                {
+                    observedLastOutput = lastOutputAt;
+                    outputCount = output.Count;
+                }
+
+                if (outputCount > 0 &&
+                    observedLastOutput.HasValue &&
+                    DateTimeOffset.UtcNow - observedLastOutput.Value >= quietPeriod)
+                {
+                    break;
+                }
+            }
+
+            IReadOnlyList<ServerOutput> snapshot;
+            lock (gate)
+            {
+                snapshot = output.ToArray();
+            }
+
+            return CommandResult.Success(snapshot);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return CommandResult.Failure(ex.Message);
+        }
+        finally
+        {
+            captureActive = false;
+            OutputReceived -= Capture;
         }
     }
 

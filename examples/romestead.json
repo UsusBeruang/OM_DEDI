@@ -19,5 +19,12 @@
     "kick": "kick {args}",
     "ban": "ban {args}",
     "unban": "unban {args}"
+  },
+  "commandCaptures": {
+    "players": {
+      "timeoutMs": 2500,
+      "quietPeriodMs": 400,
+      "includeStandardError": false
+    }
   }
 }

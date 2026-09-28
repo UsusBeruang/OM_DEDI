@@ -703,6 +703,29 @@ public sealed class DiscordControlService : IAsyncDisposable
             return;
         }
 
+        if (action == "players")
+        {
+            if (!_authorization.HasPermission(
+                    component,
+                    DiscordPermissions.Command("players")))
+            {
+                await component.RespondAsync(
+                    "Your tier does not allow viewing players.",
+                    ephemeral: true);
+                return;
+            }
+
+            await component.DeferAsync(ephemeral: true);
+
+            _ = Task.Run(
+                () => RunProfileCommandAsync(
+                    component,
+                    server,
+                    "players",
+                    arguments: null));
+            return;
+        }
+
         if (action is not ("stop" or "restart"))
         {
             await component.RespondAsync(
@@ -906,9 +929,10 @@ public sealed class DiscordControlService : IAsyncDisposable
             await interaction.ModifyOriginalResponseAsync(
                 properties =>
                 {
-                    properties.Content = result.Succeeded
-                        ? "Sent " + commandName + " to " + server.Profile.Name + "."
-                        : "Command failed: " + result.Error;
+                    properties.Content = FormatCommandResult(
+                        server,
+                        commandName,
+                        result);
                 });
         }
         catch (Exception ex)
@@ -1013,6 +1037,22 @@ public sealed class DiscordControlService : IAsyncDisposable
                 "Stop",
                 "dedi:panel:stop:" + nonce,
                 ButtonStyle.Danger,
+                disabled: server.State != ServerState.Running,
+                row: 0);
+        }
+
+        var canViewPlayers =
+            server.Profile.Commands.ContainsKey("players") &&
+            _authorization.HasPermission(
+                user,
+                DiscordPermissions.Command("players"));
+
+        if (canViewPlayers)
+        {
+            builder.WithButton(
+                "Players",
+                "dedi:panel:players:" + nonce,
+                ButtonStyle.Secondary,
                 disabled: server.State != ServerState.Running,
                 row: 0);
         }
@@ -1212,6 +1252,47 @@ public sealed class DiscordControlService : IAsyncDisposable
         value.Length <= maxLength
             ? value
             : value[..maxLength];
+
+    private static string FormatCommandResult(
+        IGameServer server,
+        string commandName,
+        CommandResult result)
+    {
+        if (!result.Succeeded)
+        {
+            return "Command failed: " + result.Error;
+        }
+
+        if (result.Output is null || result.Output.Count == 0)
+        {
+            return "Sent " + commandName + " to " +
+                server.Profile.Name + ". No console output was captured.";
+        }
+
+        var output = string.Join(
+            Environment.NewLine,
+            result.Output
+                .Select(item => item.Line)
+                .Where(line => !string.IsNullOrWhiteSpace(line)));
+
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return "Sent " + commandName + " to " +
+                server.Profile.Name + ". No console output was captured.";
+        }
+
+        output = output.Replace("```", "'''", StringComparison.Ordinal);
+        output = Truncate(output, 1700);
+
+        var heading = string.Equals(
+            commandName,
+            "players",
+            StringComparison.OrdinalIgnoreCase)
+            ? "Players on " + server.Profile.Name
+            : server.Profile.Name + " - " + commandName;
+
+        return heading + ":\n```text\n" + output + "\n```";
+    }
 
     private static string FormatDuration(TimeSpan value)
     {

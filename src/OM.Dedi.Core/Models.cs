@@ -20,9 +20,15 @@ public sealed record ServerOutput(
     ServerOutputStream Stream,
     string Line);
 
-public sealed record CommandResult(bool Succeeded, string? Error = null)
+public sealed record CommandResult(
+    bool Succeeded,
+    string? Error = null,
+    IReadOnlyList<ServerOutput>? Output = null)
 {
-    public static CommandResult Success() => new(true);
+    public static CommandResult Success(
+        IReadOnlyList<ServerOutput>? output = null) =>
+        new(true, Output: output);
 
-    public static CommandResult Failure(string error) => new(false, error);
+    public static CommandResult Failure(string error) =>
+        new(false, error);
 }
