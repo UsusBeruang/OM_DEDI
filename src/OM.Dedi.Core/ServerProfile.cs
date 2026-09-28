@@ -48,10 +48,12 @@ public sealed record ProcessProfile
     // "auto" uses the platform newline for redirected stdin and CR for PTY.
     public string InputTerminator { get; init; } = "auto";
 
-    // Emits a local diagnostic event whenever OM_DEDI writes to the PTY.
+    // Emits a local diagnostic event whenever OM_DEDI writes to the server input stream.
     public bool TraceInput { get; init; }
 
-    public bool CreateNoWindow { get; init; } = true;
+    // Keep the Windows console attached by default. Some dedicated servers
+    // accept redirected stdin only while a console is present.
+    public bool CreateNoWindow { get; init; } = false;
 }
 
 public sealed record TransportProfile
