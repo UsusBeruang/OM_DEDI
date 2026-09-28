@@ -302,9 +302,9 @@ static async Task RunProcessParityProbeAsync(
     Console.WriteLine(
         $"[probe] Starting '{profile.Process.Executable} {profile.Process.Arguments}'...");
     Console.WriteLine(
-        "[probe] This bypasses OM_DEDI runtime abstractions.");
+        "[probe] Exact PowerShell parity mode: stdout is NOT read before the command.");
     Console.WriteLine(
-        "[probe] After 'Server ready...' there is a 10 second window to connect a client.");
+        "[probe] Connect your client during the next 15 seconds.");
 
     using var process = new Process
     {
@@ -329,88 +329,16 @@ static async Task RunProcessParityProbeAsync(
 
     try
     {
-        using var readyCts = new CancellationTokenSource(
-            TimeSpan.FromSeconds(30));
-
-        var ready = false;
-
-        try
-        {
-            while (!ready)
-            {
-                var line = await process.StandardOutput.ReadLineAsync(
-                    readyCts.Token);
-
-                if (line is null)
-                {
-                    Console.WriteLine(
-                        "[probe] Stdout closed before server became ready.");
-                    return;
-                }
-
-                Console.WriteLine($"[probe OUT] {line}");
-
-                if (line.Contains(
-                        "Server ready...",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    ready = true;
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            Console.WriteLine("[probe] Timed out waiting for 'Server ready...'.");
-            return;
-        }
-
-        Console.WriteLine(
-            "[probe] Waiting up to 30 seconds for a player to finish logging in...");
-
-        var playerLoggedIn = false;
-
-        using (var loginCts = new CancellationTokenSource(
-                   TimeSpan.FromSeconds(30)))
-        {
-            try
-            {
-                while (!playerLoggedIn)
-                {
-                    var line = await process.StandardOutput.ReadLineAsync(
-                        loginCts.Token);
-
-                    if (line is null)
-                    {
-                        Console.WriteLine(
-                            "[probe] Stdout closed while waiting for player login.");
-                        return;
-                    }
-
-                    Console.WriteLine($"[probe OUT] {line}");
-
-                    playerLoggedIn = line.Contains(
-                        "logged in with external id",
-                        StringComparison.OrdinalIgnoreCase);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                Console.WriteLine(
-                    "[probe] No player login detected. Sending command anyway.");
-            }
-        }
-
-        if (playerLoggedIn)
-        {
-            Console.WriteLine(
-                "[probe] Player login confirmed. Waiting 1 second before command...");
-            await Task.Delay(1000);
-        }
+        await Task.Delay(TimeSpan.FromSeconds(15));
 
         Console.WriteLine($"[probe] WriteLine({command})");
-
         process.StandardInput.WriteLine(command);
         process.StandardInput.Flush();
+
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        Console.WriteLine(
+            "[probe] Command sent. Beginning stdout read now...");
 
         var received = 0;
 
@@ -435,13 +363,13 @@ static async Task RunProcessParityProbeAsync(
         }
         catch (OperationCanceledException)
         {
-            // Five-second observation window completed.
+            // Observation window completed.
         }
 
         Console.WriteLine(
             received == 0
-                ? "[probe] No stdout lines arrived after the command."
-                : $"[probe] Received {received} stdout line(s) after the command.");
+                ? "[probe] No stdout lines were read."
+                : $"[probe] Read {received} stdout line(s).");
     }
     finally
     {
@@ -449,8 +377,8 @@ static async Task RunProcessParityProbeAsync(
         {
             try
             {
-                await process.StandardInput.WriteLineAsync("stop");
-                await process.StandardInput.FlushAsync();
+                process.StandardInput.WriteLine("stop");
+                process.StandardInput.Flush();
 
                 using var stopCts = new CancellationTokenSource(
                     TimeSpan.FromSeconds(5));
