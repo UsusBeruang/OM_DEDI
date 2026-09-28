@@ -2,13 +2,11 @@
   "id": "romestead",
   "name": "Romestead",
   "process": {
-    "executable": "E:\\_servers_\\Romestead\\Server.exe",
+    "executable": "dotnet",
     "workingDirectory": "E:\\_servers_\\Romestead",
-    "arguments": "",
-    "mode": "pty",
-    "terminalColumns": 120,
-    "terminalRows": 30,
-    "inputTerminator": "cr",
+    "arguments": "Server.dll",
+    "mode": "redirected",
+    "inputTerminator": "lf",
     "traceInput": true
   },
   "transport": {
