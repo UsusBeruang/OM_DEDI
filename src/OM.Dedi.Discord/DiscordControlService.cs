@@ -9,7 +9,7 @@ namespace OM.Dedi.Discord;
 public sealed class DiscordControlService : IAsyncDisposable
 {
     private static readonly Regex NetworkEndpointRegex = new(
-        @"(?<![0-9A-Fa-f:.])(?:(?:\d{1,3}\.){3}\d{1,3}|\[[0-9A-Fa-f:]+\]|[0-9A-Fa-f:]{2,})(?::\d{1,5})?(?![0-9A-Fa-f:.])",
+        @"(?<![0-9A-Fa-f:.])(?:(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?|\[[0-9A-Fa-f:]+\](?::\d{1,5})?|(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4})(?![0-9A-Fa-f:.])",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly TimeSpan ConfirmationLifetime = TimeSpan.FromMinutes(2);
