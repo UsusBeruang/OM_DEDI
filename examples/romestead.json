@@ -4,7 +4,10 @@
   "process": {
     "executable": "E:\\_servers_\\Romestead\\Server.exe",
     "workingDirectory": "E:\\_servers_\\Romestead",
-    "arguments": ""
+    "arguments": "",
+    "mode": "pty",
+    "terminalColumns": 120,
+    "terminalRows": 30
   },
   "transport": {
     "type": "stdin"
