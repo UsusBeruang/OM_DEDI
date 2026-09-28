@@ -195,16 +195,16 @@ static bool TryGetServer(
     IReadOnlyDictionary<string, IGameServer> servers,
     out IGameServer server)
 {
-    server = null!;
-
-    if (parts.Length < 2 ||
-        !servers.TryGetValue(parts[1], out server))
+    if (parts.Length >= 2 &&
+        servers.TryGetValue(parts[1], out var resolvedServer))
     {
-        Console.WriteLine("Specify a valid server id.");
-        return false;
+        server = resolvedServer;
+        return true;
     }
 
-    return true;
+    server = null!;
+    Console.WriteLine("Specify a valid server id.");
+    return false;
 }
 
 static void PrintStatus(IGameServer server)
