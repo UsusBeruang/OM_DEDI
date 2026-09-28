@@ -4,9 +4,9 @@ namespace OM.Dedi.Runtime;
 
 public sealed class StdinCommandTransport : ICommandTransport
 {
-    private readonly LocalProcessServer _process;
+    private readonly IInteractiveServerProcess _process;
 
-    public StdinCommandTransport(LocalProcessServer process)
+    public StdinCommandTransport(IInteractiveServerProcess process)
     {
         _process = process;
     }
