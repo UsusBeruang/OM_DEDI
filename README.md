@@ -119,6 +119,67 @@ Running `/dedi` opens an ephemeral control panel. From there you can:
 
 Remote raw console execution is intentionally unavailable.
 
+## Discord access tiers
+
+Discord access is default-deny.
+
+Owners are configured separately and always have full access. Lower tiers are arbitrary names with user IDs and/or Discord role IDs plus explicit permissions. A user that matches multiple tiers receives the union of those permissions.
+
+Example:
+
+```json
+{
+  "guildId": 123456789012345678,
+  "commandName": "dedi",
+  "ownerUserId": 111111111111111111,
+  "tiers": {
+    "admin": {
+      "userIds": [222222222222222222],
+      "roleIds": [],
+      "permissions": [
+        "dashboard.view",
+        "server.*",
+        "command:*"
+      ]
+    },
+    "moderator": {
+      "userIds": [],
+      "roleIds": [333333333333333333],
+      "permissions": [
+        "dashboard.view",
+        "command:players",
+        "command:say",
+        "command:kick"
+      ]
+    }
+  }
+}
+```
+
+Supported permission families:
+
+```text
+dashboard.view
+server.start
+server.stop
+server.restart
+server.*
+command:<profile-command>
+command:*
+*
+```
+
+Examples:
+
+- `server.*` grants all server lifecycle actions.
+- `command:players` grants only the profile command named `players`.
+- `command:*` grants every profile-defined server command.
+- `*` grants every current and future permission and is normally unnecessary because owners already bypass permission checks.
+
+The UI hides or disables actions the current tier cannot use, and every action is also re-checked server-side when the Discord interaction is handled.
+
+The old `allowedUserIds` / `allowedRoleIds` configuration has been replaced by this owner/tier model.
+
 ## Next
 
 - structured response capture for commands such as player listing;
