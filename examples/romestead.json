@@ -6,7 +6,7 @@
     "workingDirectory": "E:\\_servers_\\Romestead",
     "arguments": "Server.dll",
     "mode": "redirected",
-    "inputTerminator": "crlf",
+    "inputTerminator": "auto",
     "traceInput": true
   },
   "transport": {

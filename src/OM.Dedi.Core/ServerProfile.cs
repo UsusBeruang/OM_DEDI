@@ -44,8 +44,9 @@ public sealed record ProcessProfile
 
     public int TerminalRows { get; init; } = 30;
 
-    // PTY input terminator: "cr", "lf", or "crlf".
-    public string InputTerminator { get; init; } = "cr";
+    // Input terminator: "auto", "cr", "lf", or "crlf".
+    // "auto" uses the platform newline for redirected stdin and CR for PTY.
+    public string InputTerminator { get; init; } = "auto";
 
     // Emits a local diagnostic event whenever OM_DEDI writes to the PTY.
     public bool TraceInput { get; init; }

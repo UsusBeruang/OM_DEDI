@@ -106,6 +106,7 @@ public sealed class PtyProcessServer : IInteractiveServerProcess, IDisposable
 
         var terminator = _profile.Process.InputTerminator.ToLowerInvariant() switch
         {
+            "auto" => "\r",
             "cr" => "\r",
             "lf" => "\n",
             "crlf" => "\r\n",

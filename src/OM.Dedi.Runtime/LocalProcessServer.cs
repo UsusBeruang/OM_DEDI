@@ -112,6 +112,7 @@ public sealed class LocalProcessServer : IInteractiveServerProcess, IDisposable
 
         var terminator = _profile.Process.InputTerminator.ToLowerInvariant() switch
         {
+            "auto" => Environment.NewLine,
             "cr" => "\r",
             "lf" => "\n",
             "crlf" => "\r\n",
