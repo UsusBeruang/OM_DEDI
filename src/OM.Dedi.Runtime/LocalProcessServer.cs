@@ -128,47 +128,7 @@ public sealed class LocalProcessServer : IInteractiveServerProcess, IDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var mode = _profile.Process.InputTerminator.ToLowerInvariant();
-
-        if (mode == "auto")
-        {
-            if (_profile.Process.TraceInput)
-            {
-                var escaped = process.StandardInput.NewLine
-                    .Replace("\r", "\\r", StringComparison.Ordinal)
-                    .Replace("\n", "\\n", StringComparison.Ordinal);
-
-                PublishOutput(
-                    ServerOutputStream.StandardError,
-                    $"[OM_DEDI STDIN] WriteLine({command}){escaped}");
-            }
-
-            await process.StandardInput.WriteLineAsync(command);
-            await process.StandardInput.FlushAsync(cancellationToken);
-            return;
-        }
-
-        var terminator = mode switch
-        {
-            "cr" => "\r",
-            "lf" => "\n",
-            "crlf" => "\r\n",
-            var value => throw new InvalidOperationException(
-                $"Unsupported redirected input terminator '{value}'.")
-        };
-
-        if (_profile.Process.TraceInput)
-        {
-            var escaped = terminator
-                .Replace("\r", "\\r", StringComparison.Ordinal)
-                .Replace("\n", "\\n", StringComparison.Ordinal);
-
-            PublishOutput(
-                ServerOutputStream.StandardError,
-                $"[OM_DEDI STDIN] Write({command}{escaped})");
-        }
-
-        await process.StandardInput.WriteAsync(command + terminator);
+        await process.StandardInput.WriteLineAsync(command);
         await process.StandardInput.FlushAsync(cancellationToken);
     }
 
