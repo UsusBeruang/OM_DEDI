@@ -1,5 +1,6 @@
 using System.Text.Json;
 using OM.Dedi.Core;
+using OM.Dedi.Discord;
 using OM.Dedi.Runtime;
 
 var profileDirectory = args.Length > 0
@@ -60,6 +61,23 @@ if (servers.Count == 0)
 
 Console.WriteLine("OM_DEDI — Orchestration Manager for Dedicated Servers");
 Console.WriteLine($"Loaded {servers.Count} server profile(s).");
+
+DiscordControlService? discord = null;
+
+try
+{
+    discord = await TryStartDiscordAsync(
+        servers,
+        serializerOptions);
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine(
+        $"Discord control failed to start: {ex.Message}");
+    await StopAllAsync(servers.Values);
+    return 1;
+}
+
 PrintHelp();
 
 while (true)
@@ -172,7 +190,7 @@ while (true)
 
             case "quit":
             case "exit":
-                await StopAllAsync(servers.Values);
+                await ShutdownAsync(servers.Values, discord);
                 return 0;
 
             default:
@@ -187,8 +205,69 @@ while (true)
     }
 }
 
-await StopAllAsync(servers.Values);
+await ShutdownAsync(servers.Values, discord);
 return 0;
+
+static async Task<DiscordControlService?> TryStartDiscordAsync(
+    IReadOnlyDictionary<string, IGameServer> servers,
+    JsonSerializerOptions serializerOptions)
+{
+    var token = Environment.GetEnvironmentVariable(
+        "OM_DEDI_DISCORD_TOKEN");
+
+    if (string.IsNullOrWhiteSpace(token))
+    {
+        Console.WriteLine(
+            "Discord control disabled (OM_DEDI_DISCORD_TOKEN is not set).");
+        return null;
+    }
+
+    var configPath = Environment.GetEnvironmentVariable(
+        "OM_DEDI_DISCORD_CONFIG");
+
+    if (string.IsNullOrWhiteSpace(configPath))
+    {
+        configPath = Path.Combine(
+            Environment.CurrentDirectory,
+            "discord.json");
+    }
+
+    if (!File.Exists(configPath))
+    {
+        throw new FileNotFoundException(
+            "Discord token is configured, but the Discord config file was not found.",
+            configPath);
+    }
+
+    await using var stream = File.OpenRead(configPath);
+    var options = await JsonSerializer.DeserializeAsync<DiscordOptions>(
+        stream,
+        serializerOptions);
+
+    if (options is null)
+    {
+        throw new InvalidOperationException(
+            $"Unable to parse Discord config: {configPath}");
+    }
+
+    var service = new DiscordControlService(
+        token,
+        options,
+        servers);
+
+    try
+    {
+        await service.StartAsync();
+        Console.WriteLine(
+            $"Discord control enabled for guild {options.GuildId}.");
+        return service;
+    }
+    catch
+    {
+        await service.DisposeAsync();
+        throw;
+    }
+}
 
 static bool TryGetServer(
     string[] parts,
@@ -220,6 +299,18 @@ static void PrintResult(CommandResult result)
         result.Succeeded
             ? "Command sent."
             : $"Command failed: {result.Error}");
+}
+
+static async Task ShutdownAsync(
+    IEnumerable<IGameServer> servers,
+    DiscordControlService? discord)
+{
+    if (discord is not null)
+    {
+        await discord.DisposeAsync();
+    }
+
+    await StopAllAsync(servers);
 }
 
 static async Task StopAllAsync(IEnumerable<IGameServer> servers)

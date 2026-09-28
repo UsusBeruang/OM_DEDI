@@ -8,6 +8,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OM.Dedi.Runtime", "src\OM.D
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OM.Dedi.Host", "src\OM.Dedi.Host\OM.Dedi.Host.csproj", "{A16AFA0A-7B63-4A30-8F35-0CE6B4A87003}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OM.Dedi.Discord", "src\OM.Dedi.Discord\OM.Dedi.Discord.csproj", "{A16AFA0A-7B63-4A30-8F35-0CE6B4A87004}"
+EndProject
 Global
     GlobalSection(SolutionConfigurationPlatforms) = preSolution
         Debug|Any CPU = Debug|Any CPU
@@ -26,5 +28,9 @@ Global
         {A16AFA0A-7B63-4A30-8F35-0CE6B4A87003}.Debug|Any CPU.Build.0 = Debug|Any CPU
         {A16AFA0A-7B63-4A30-8F35-0CE6B4A87003}.Release|Any CPU.ActiveCfg = Release|Any CPU
         {A16AFA0A-7B63-4A30-8F35-0CE6B4A87003}.Release|Any CPU.Build.0 = Release|Any CPU
+        {A16AFA0A-7B63-4A30-8F35-0CE6B4A87004}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+        {A16AFA0A-7B63-4A30-8F35-0CE6B4A87004}.Debug|Any CPU.Build.0 = Debug|Any CPU
+        {A16AFA0A-7B63-4A30-8F35-0CE6B4A87004}.Release|Any CPU.ActiveCfg = Release|Any CPU
+        {A16AFA0A-7B63-4A30-8F35-0CE6B4A87004}.Release|Any CPU.Build.0 = Release|Any CPU
     EndGlobalSection
 EndGlobal

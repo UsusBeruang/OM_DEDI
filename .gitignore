@@ -12,6 +12,7 @@ artifacts/
 # Local configuration / secrets
 appsettings.Local.json
 profiles/local/
+discord.json
 .env
 .env.*
 

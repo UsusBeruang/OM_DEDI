@@ -6,5 +6,6 @@
   <ItemGroup>
     <ProjectReference Include="..\OM.Dedi.Core\OM.Dedi.Core.csproj" />
     <ProjectReference Include="..\OM.Dedi.Runtime\OM.Dedi.Runtime.csproj" />
+    <ProjectReference Include="..\OM.Dedi.Discord\OM.Dedi.Discord.csproj" />
   </ItemGroup>
 </Project>

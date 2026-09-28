@@ -6,7 +6,7 @@ A generic .NET 8 control layer for running and remotely administering dedicated 
 
 ## Design
 
-OM_DEDI deliberately separates three concerns:
+OM_DEDI separates server lifecycle, command transport, and control surfaces:
 
 ```text
 Discord / CLI / Desktop / Web
@@ -20,21 +20,21 @@ IServerProcess  ICommandTransport
 LocalProcess      StdinTransport
 ```
 
-A frontend does not need to know whether a game uses stdin, RCON, Docker exec, TCP, HTTP, or another transport. Likewise, game-specific command names live in profiles rather than in Discord commands.
+A frontend does not need to know whether a game uses stdin, RCON, Docker exec, TCP, HTTP, or another transport. Game-specific command names live in profiles rather than in Discord commands.
 
-## Current milestone
+## Current features
 
-The first runnable slice supports:
-
-- local dedicated-server process start / stop / restart;
+- multiple profile-driven dedicated servers;
+- local process start / stop / restart;
 - redirected stdin command delivery;
 - streamed stdout and stderr;
-- graceful stop command with forced process-tree termination as fallback;
-- named, profile-defined commands such as `players`, `save`, and `say`;
-- raw console commands for local development;
-- multiple server profiles loaded by one host process.
-
-Discord is intentionally the next layer, not part of the runtime.
+- graceful stop command with forced process-tree termination fallback;
+- named server-profile commands;
+- local raw console access for development;
+- optional Discord slash-command control;
+- Discord user/role allowlists with default-deny behavior;
+- confirmation buttons for remote stop/restart;
+- no raw Discord console command.
 
 ## Repository layout
 
@@ -42,9 +42,11 @@ Discord is intentionally the next layer, not part of the runtime.
 src/
   OM.Dedi.Core/      Domain abstractions and server profiles
   OM.Dedi.Runtime/   Process supervision and command transports
-  OM.Dedi.Host/      Local CLI host
+  OM.Dedi.Discord/   Discord remote-control adapter
+  OM.Dedi.Host/      Local CLI host and composition root
 examples/
   romestead.json     Example stdin-based server profile
+discord.example.json
 ```
 
 ## Build
@@ -55,21 +57,21 @@ Requires the .NET 8 SDK.
 dotnet build OM_DEDI.sln
 ```
 
-## Run the local host
+## Local host
 
-By default the host loads every JSON profile in `./examples`:
+By default the host loads every JSON server profile in `./examples`:
 
 ```powershell
 dotnet run --project src/OM.Dedi.Host
 ```
 
-Or point it at your own profile directory:
+Or supply a profile directory:
 
 ```powershell
 dotnet run --project src/OM.Dedi.Host -- E:\_servers_\om_dedi\profiles
 ```
 
-The interactive shell currently provides:
+Local commands:
 
 ```text
 servers
@@ -83,26 +85,44 @@ help
 quit
 ```
 
-Example:
+The local `send` command intentionally remains a development/admin surface. It is not exposed through Discord.
 
-```text
-start romestead
-exec romestead players
-exec romestead say Server restart in 5 minutes
-exec romestead save
-stop romestead
+## Discord setup
+
+1. Create a Discord application/bot and invite it to the guild where you want to administer servers.
+2. Copy `discord.example.json` to `discord.json`.
+3. Set the guild ID and at least one allowed Discord user ID or role ID.
+4. Set the bot token only through the environment:
+
+```powershell
+$env:OM_DEDI_DISCORD_TOKEN = "your-bot-token"
 ```
 
-## Profiles
+Optionally point to a different config file:
 
-`examples/romestead.json` demonstrates a stdin-controlled server. Copy it to your own profile directory and adjust the executable and working directory.
+```powershell
+$env:OM_DEDI_DISCORD_CONFIG = "E:\_servers_\om_dedi\discord.json"
+```
 
-The raw `send` command is currently a development surface. Remote frontends such as Discord should expose an allow-listed capability model and enforce authorization rather than forwarding arbitrary console text.
+Then run OM_DEDI normally. The bot registers a guild-scoped `/dedi` command.
+
+Available Discord subcommands:
+
+```text
+/dedi servers
+/dedi status  server:<id>
+/dedi start   server:<id>
+/dedi stop    server:<id>
+/dedi restart server:<id>
+/dedi exec    server:<id> command:<profile-command> arguments:<optional>
+```
+
+`stop` and `restart` require confirmation. `exec` can only invoke commands explicitly declared in that server's profile. Remote raw console execution is intentionally unavailable.
 
 ## Next
 
-1. Add automated tests for process lifecycle and command expansion.
-2. Add a Discord adapter with guild/user/role authorization.
-3. Add confirmation handling for destructive commands.
-4. Add structured command-response capture for commands such as player listing.
-5. Add additional transports such as RCON without changing the frontend contract.
+- structured response capture for commands such as player listing;
+- server and command autocomplete in Discord;
+- test coverage for lifecycle, command expansion, and authorization;
+- RCON transport without changing the Discord or CLI contract;
+- server-event parsing and Discord notifications.
