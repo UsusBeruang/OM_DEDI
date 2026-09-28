@@ -8,6 +8,14 @@ namespace OM.Dedi.Discord;
 public sealed class DiscordControlService : IAsyncDisposable
 {
     private static readonly TimeSpan ConfirmationLifetime = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan PanelLifetime = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan CommandPromptLifetime = TimeSpan.FromMinutes(2);
+
+    private const string DashboardStartId = "dedi:dashboard:start";
+    private const string DashboardManageId = "dedi:dashboard:manage";
+    private const string DashboardRefreshId = "dedi:dashboard:refresh";
+    private const string StartSelectId = "dedi:select:start";
+    private const string ManageSelectId = "dedi:select:manage";
 
     private readonly string _token;
     private readonly DiscordOptions _options;
@@ -15,6 +23,8 @@ public sealed class DiscordControlService : IAsyncDisposable
     private readonly DiscordSocketClient _client;
     private readonly DiscordAuthorization _authorization;
     private readonly ConcurrentDictionary<string, PendingConfirmation> _pending = new();
+    private readonly ConcurrentDictionary<string, ServerPanelSession> _panels = new();
+    private readonly ConcurrentDictionary<string, CommandPrompt> _commandPrompts = new();
 
     private int _commandsRegistered;
     private bool _disposed;
@@ -46,7 +56,8 @@ public sealed class DiscordControlService : IAsyncDisposable
         _client.Ready += OnReadyAsync;
         _client.SlashCommandExecuted += OnSlashCommandAsync;
         _client.ButtonExecuted += OnButtonAsync;
-        _client.AutocompleteExecuted += OnAutocompleteAsync;
+        _client.SelectMenuExecuted += OnSelectMenuAsync;
+        _client.ModalSubmitted += OnModalSubmittedAsync;
     }
 
     public async Task StartAsync()
@@ -104,114 +115,10 @@ public sealed class DiscordControlService : IAsyncDisposable
             $"Discord command '/{_options.CommandName}' registered for guild '{guild.Name}'.");
     }
 
-    private SlashCommandBuilder BuildCommand()
-    {
-        return new SlashCommandBuilder()
+    private SlashCommandBuilder BuildCommand() =>
+        new SlashCommandBuilder()
             .WithName(_options.CommandName)
-            .WithDescription("Control dedicated servers managed by OM_DEDI")
-            .AddOption(
-                new SlashCommandOptionBuilder()
-                    .WithName("servers")
-                    .WithDescription("List configured servers")
-                    .WithType(ApplicationCommandOptionType.SubCommand))
-            .AddOption(CreateServerSubcommand("status", "Show server status"))
-            .AddOption(CreateServerSubcommand("start", "Start a server"))
-            .AddOption(CreateServerSubcommand("stop", "Stop a server"))
-            .AddOption(CreateServerSubcommand("restart", "Restart a server"))
-            .AddOption(
-                CreateServerSubcommand(
-                        "exec",
-                        "Execute a command declared by the server profile")
-                    .AddOption(
-                        new SlashCommandOptionBuilder()
-                            .WithName("command")
-                            .WithDescription("Profile command name")
-                            .WithType(ApplicationCommandOptionType.String)
-                            .WithRequired(true))
-                    .AddOption(
-                        new SlashCommandOptionBuilder()
-                            .WithName("arguments")
-                            .WithDescription("Optional command arguments")
-                            .WithType(ApplicationCommandOptionType.String)
-                            .WithRequired(false)));
-    }
-
-    private static SlashCommandOptionBuilder CreateServerSubcommand(
-        string name,
-        string description) =>
-        new SlashCommandOptionBuilder()
-            .WithName(name)
-            .WithDescription(description)
-            .WithType(ApplicationCommandOptionType.SubCommand)
-            .AddOption(
-                new SlashCommandOptionBuilder()
-                    .WithName("server")
-                    .WithDescription("OM_DEDI server id")
-                    .WithType(ApplicationCommandOptionType.String)
-                    .WithRequired(true)
-                    .WithAutocomplete(true));
-
-    private async Task OnAutocompleteAsync(
-        SocketAutocompleteInteraction interaction)
-    {
-        if (!_authorization.IsAllowed(interaction) ||
-            !string.Equals(
-                interaction.Data.Current.Name,
-                "server",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            await interaction.RespondAsync(Array.Empty<AutocompleteResult>());
-            return;
-        }
-
-        var action = interaction.Data.Options
-            .FirstOrDefault(
-                option => option.Type == ApplicationCommandOptionType.SubCommand)
-            ?.Name;
-
-        var input = interaction.Data.Current.Value?.ToString() ?? string.Empty;
-
-        var candidates = action switch
-        {
-            "start" => _servers.Values.Where(
-                server => server.State is ServerState.Stopped or ServerState.Faulted),
-            "stop" or "restart" or "exec" => _servers.Values.Where(
-                server => server.State == ServerState.Running),
-            "status" => _servers.Values,
-            _ => _servers.Values
-        };
-
-        var results = candidates
-            .Where(
-                server =>
-                    string.IsNullOrWhiteSpace(input) ||
-                    server.Profile.Id.Contains(
-                        input,
-                        StringComparison.OrdinalIgnoreCase) ||
-                    server.Profile.Name.Contains(
-                        input,
-                        StringComparison.OrdinalIgnoreCase))
-            .OrderBy(
-                server => server.Profile.Name,
-                StringComparer.OrdinalIgnoreCase)
-            .Take(25)
-            .Select(
-                server => new AutocompleteResult(
-                    FormatAutocompleteName(server),
-                    server.Profile.Id));
-
-        await interaction.RespondAsync(results);
-    }
-
-    private static string FormatAutocompleteName(IGameServer server)
-    {
-        var label =
-            $"{server.Profile.Name} ({server.Profile.Id}) - {server.State}";
-
-        return label.Length <= 100
-            ? label
-            : label[..100];
-    }
+            .WithDescription("Open the OM_DEDI dedicated server control panel");
 
     private async Task OnSlashCommandAsync(SocketSlashCommand command)
     {
@@ -223,56 +130,12 @@ public sealed class DiscordControlService : IAsyncDisposable
             return;
         }
 
-        var subcommand = command.Data.Options.FirstOrDefault();
-        if (subcommand is null)
-        {
-            await command.RespondAsync(
-                "No subcommand was supplied.",
-                ephemeral: true);
-            return;
-        }
+        CleanupExpiredSessions();
 
-        try
-        {
-            switch (subcommand.Name)
-            {
-                case "servers":
-                    await RespondWithServersAsync(command);
-                    break;
-
-                case "status":
-                    await RespondWithStatusAsync(command, subcommand);
-                    break;
-
-                case "start":
-                    await StartServerAsync(command, subcommand);
-                    break;
-
-                case "stop":
-                case "restart":
-                    await RequestConfirmationAsync(
-                        command,
-                        subcommand,
-                        subcommand.Name);
-                    break;
-
-                case "exec":
-                    await ExecuteProfileCommandAsync(command, subcommand);
-                    break;
-
-                default:
-                    await command.RespondAsync(
-                        "Unsupported OM_DEDI command.",
-                        ephemeral: true);
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            await RespondOrFollowupAsync(
-                command,
-                $"Operation failed: {ex.Message}");
-        }
+        await command.RespondAsync(
+            BuildDashboardText(),
+            components: BuildDashboardComponents(),
+            ephemeral: true);
     }
 
     private async Task RespondWithServersAsync(SocketSlashCommand command)
@@ -429,74 +292,48 @@ public sealed class DiscordControlService : IAsyncDisposable
             return;
         }
 
-        var parts = component.Data.CustomId.Split(':', 3);
-        if (parts.Length != 3 || parts[0] != "dedi")
+        CleanupExpiredSessions();
+
+        switch (component.Data.CustomId)
         {
+            case DashboardStartId:
+                await ShowStartableServersAsync(component);
+                return;
+
+            case DashboardManageId:
+                await ShowRunningServersAsync(component);
+                return;
+
+            case DashboardRefreshId:
+                await ShowDashboardAsync(component);
+                return;
+        }
+
+        var parts = component.Data.CustomId.Split(':');
+
+        if (parts.Length == 4 &&
+            parts[0] == "dedi" &&
+            parts[1] == "panel")
+        {
+            await HandleServerPanelButtonAsync(
+                component,
+                parts[2],
+                parts[3]);
             return;
         }
 
-        var mode = parts[1];
-        var nonce = parts[2];
-
-        if (!_pending.TryRemove(nonce, out var pending))
+        if (parts.Length == 3 &&
+            parts[0] == "dedi" &&
+            (parts[1] == "confirm" || parts[1] == "cancel"))
         {
-            await component.RespondAsync(
-                "This confirmation has expired or was already used.",
-                ephemeral: true);
-            return;
+            await HandleConfirmationAsync(
+                component,
+                parts[1],
+                parts[2]);
         }
-
-        if (pending.UserId != component.User.Id)
-        {
-            _pending[nonce] = pending;
-            await component.RespondAsync(
-                "Only the user who requested this operation can confirm it.",
-                ephemeral: true);
-            return;
-        }
-
-        if (pending.ExpiresAt <= DateTimeOffset.UtcNow)
-        {
-            await component.RespondAsync(
-                "This confirmation has expired.",
-                ephemeral: true);
-            return;
-        }
-
-        if (mode == "cancel")
-        {
-            await component.UpdateAsync(
-                properties =>
-                {
-                    properties.Content =
-                        $"Cancelled {pending.Action} for {pending.ServerId}.";
-                    properties.Components = new ComponentBuilder().Build();
-                });
-            return;
-        }
-
-        if (mode != "confirm" ||
-            !_servers.TryGetValue(pending.ServerId, out var server))
-        {
-            await component.RespondAsync(
-                "The requested operation is no longer available.",
-                ephemeral: true);
-            return;
-        }
-
-        await component.UpdateAsync(
-            properties =>
-            {
-                properties.Content =
-                    $"{pending.Action} in progress for {pending.ServerId}...";
-                properties.Components = new ComponentBuilder().Build();
-            });
-
-        _ = Task.Run(
-            () => RunConfirmedOperationAsync(component, pending, server));
     }
 
-    private static async Task RunConfirmedOperationAsync(
+    private async Task RunConfirmedOperationAsync(
         SocketMessageComponent component,
         PendingConfirmation pending,
         IGameServer server)
@@ -514,23 +351,782 @@ public sealed class DiscordControlService : IAsyncDisposable
                     break;
 
                 default:
-                    await component.FollowupAsync(
-                        "Unsupported confirmed operation.",
-                        ephemeral: true);
-                    return;
+                    throw new InvalidOperationException(
+                        "Unsupported confirmed action '" + pending.Action + "'.");
             }
 
-            await component.FollowupAsync(
-                $"Completed {pending.Action} for {pending.ServerId}. " +
-                $"State: {server.State}.",
-                ephemeral: true);
+            await component.ModifyOriginalResponseAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "Completed " + pending.Action + " for " +
+                        server.Profile.Name + ". State: " + server.State +
+                        ".\n\n" + BuildDashboardText();
+                    properties.Components = BuildDashboardComponents();
+                });
         }
         catch (Exception ex)
         {
-            await component.FollowupAsync(
-                $"Operation failed: {ex.Message}",
-                ephemeral: true);
+            await component.ModifyOriginalResponseAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "Operation failed: " + ex.Message +
+                        "\n\n" + BuildDashboardText();
+                    properties.Components = BuildDashboardComponents();
+                });
         }
+    }
+
+    private async Task OnSelectMenuAsync(SocketMessageComponent component)
+    {
+        if (!_authorization.IsAllowed(component))
+        {
+            await component.RespondAsync(
+                "You are not authorized to control OM_DEDI.",
+                ephemeral: true);
+            return;
+        }
+
+        CleanupExpiredSessions();
+
+        var selected = component.Data.Values.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(selected))
+        {
+            await component.RespondAsync(
+                "No selection was provided.",
+                ephemeral: true);
+            return;
+        }
+
+        switch (component.Data.CustomId)
+        {
+            case StartSelectId:
+                await StartSelectedServerAsync(component, selected);
+                return;
+
+            case ManageSelectId:
+                await ShowServerPanelAsync(component, selected);
+                return;
+        }
+
+        var parts = component.Data.CustomId.Split(':');
+        if (parts.Length == 3 &&
+            parts[0] == "dedi" &&
+            parts[1] == "commands")
+        {
+            await ExecuteSelectedProfileCommandAsync(
+                component,
+                parts[2],
+                selected);
+        }
+    }
+
+    private async Task OnModalSubmittedAsync(SocketModal modal)
+    {
+        if (!_authorization.IsAllowed(modal))
+        {
+            await modal.RespondAsync(
+                "You are not authorized to control OM_DEDI.",
+                ephemeral: true);
+            return;
+        }
+
+        CleanupExpiredSessions();
+
+        var parts = modal.Data.CustomId.Split(':');
+        if (parts.Length != 3 ||
+            parts[0] != "dedi" ||
+            parts[1] != "modal" ||
+            !_commandPrompts.TryRemove(parts[2], out var prompt) ||
+            prompt.UserId != modal.User.Id ||
+            prompt.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            await modal.RespondAsync(
+                "This command prompt has expired.",
+                ephemeral: true);
+            return;
+        }
+
+        if (!_servers.TryGetValue(prompt.ServerId, out var server) ||
+            server.State != ServerState.Running)
+        {
+            await modal.RespondAsync(
+                "The selected server is no longer running.",
+                ephemeral: true);
+            return;
+        }
+
+        var arguments = modal.Data.Components
+            .FirstOrDefault(item => item.CustomId == "arguments")
+            ?.Value;
+
+        await modal.DeferAsync(ephemeral: true);
+
+        _ = Task.Run(
+            () => RunProfileCommandAsync(
+                modal,
+                server,
+                prompt.CommandName,
+                arguments));
+    }
+
+    private async Task ShowDashboardAsync(SocketMessageComponent component)
+    {
+        await component.UpdateAsync(
+            properties =>
+            {
+                properties.Content = BuildDashboardText();
+                properties.Components = BuildDashboardComponents();
+            });
+    }
+
+    private async Task ShowStartableServersAsync(SocketMessageComponent component)
+    {
+        var servers = GetStartableServers();
+        if (servers.Count == 0)
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "No stopped or faulted server profiles are currently available to start.";
+                    properties.Components = BuildDashboardComponents();
+                });
+            return;
+        }
+
+        await component.UpdateAsync(
+            properties =>
+            {
+                properties.Content = "Select a server profile to start:";
+                properties.Components = BuildServerSelectComponents(
+                    StartSelectId,
+                    "Select a server to start",
+                    servers);
+            });
+    }
+
+    private async Task ShowRunningServersAsync(SocketMessageComponent component)
+    {
+        var servers = GetRunningServers();
+        if (servers.Count == 0)
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content = "No managed server is currently running.";
+                    properties.Components = BuildDashboardComponents();
+                });
+            return;
+        }
+
+        await component.UpdateAsync(
+            properties =>
+            {
+                properties.Content = "Select a running server to manage:";
+                properties.Components = BuildServerSelectComponents(
+                    ManageSelectId,
+                    "Select a running server",
+                    servers);
+            });
+    }
+
+    private async Task StartSelectedServerAsync(
+        SocketMessageComponent component,
+        string serverId)
+    {
+        if (!_servers.TryGetValue(serverId, out var server))
+        {
+            await component.RespondAsync(
+                "That server profile no longer exists.",
+                ephemeral: true);
+            return;
+        }
+
+        if (server.State is not (ServerState.Stopped or ServerState.Faulted))
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content =
+                        server.Profile.Name + " is currently " + server.State + ".";
+                    properties.Components = BuildDashboardComponents();
+                });
+            return;
+        }
+
+        await component.UpdateAsync(
+            properties =>
+            {
+                properties.Content = "Starting " + server.Profile.Name + "...";
+                properties.Components = new ComponentBuilder().Build();
+            });
+
+        _ = Task.Run(() => RunStartSelectedServerAsync(component, server));
+    }
+
+    private async Task RunStartSelectedServerAsync(
+        SocketMessageComponent component,
+        IGameServer server)
+    {
+        try
+        {
+            await server.StartAsync();
+
+            await component.ModifyOriginalResponseAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "Started " + server.Profile.Name +
+                        ". State: " + server.State + ".\n\n" +
+                        BuildDashboardText();
+                    properties.Components = BuildDashboardComponents();
+                });
+        }
+        catch (Exception ex)
+        {
+            await component.ModifyOriginalResponseAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "Start failed for " + server.Profile.Name +
+                        ": " + ex.Message + "\n\n" +
+                        BuildDashboardText();
+                    properties.Components = BuildDashboardComponents();
+                });
+        }
+    }
+
+    private async Task ShowServerPanelAsync(
+        SocketMessageComponent component,
+        string serverId)
+    {
+        if (!_servers.TryGetValue(serverId, out var server) ||
+            server.State != ServerState.Running)
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content = "That server is no longer running.";
+                    properties.Components = BuildDashboardComponents();
+                });
+            return;
+        }
+
+        var nonce = CreateNonce();
+        _panels[nonce] = new ServerPanelSession(
+            component.User.Id,
+            server.Profile.Id,
+            DateTimeOffset.UtcNow.Add(PanelLifetime));
+
+        await component.UpdateAsync(
+            properties =>
+            {
+                properties.Content = BuildServerPanelText(server);
+                properties.Components = BuildServerPanelComponents(nonce, server);
+            });
+    }
+
+    private async Task HandleServerPanelButtonAsync(
+        SocketMessageComponent component,
+        string action,
+        string nonce)
+    {
+        if (action == "back")
+        {
+            _panels.TryRemove(nonce, out _);
+            await ShowDashboardAsync(component);
+            return;
+        }
+
+        if (!TryResolvePanelSession(
+                component.User.Id,
+                nonce,
+                out var session,
+                out var server))
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content = "This server panel has expired.";
+                    properties.Components = BuildDashboardComponents();
+                });
+            return;
+        }
+
+        if (action == "refresh")
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content = BuildServerPanelText(server);
+                    properties.Components = BuildServerPanelComponents(nonce, server);
+                });
+            return;
+        }
+
+        if (action is not ("stop" or "restart"))
+        {
+            await component.RespondAsync(
+                "Unsupported server action.",
+                ephemeral: true);
+            return;
+        }
+
+        var confirmationNonce = CreateNonce();
+        _pending[confirmationNonce] = new PendingConfirmation(
+            component.User.Id,
+            action,
+            session.ServerId,
+            DateTimeOffset.UtcNow.Add(ConfirmationLifetime));
+
+        await component.UpdateAsync(
+            properties =>
+            {
+                properties.Content =
+                    "Confirm " + action + " for " + server.Profile.Name + "?";
+                properties.Components = BuildConfirmationComponents(
+                    confirmationNonce);
+            });
+    }
+
+    private async Task HandleConfirmationAsync(
+        SocketMessageComponent component,
+        string mode,
+        string nonce)
+    {
+        if (!_pending.TryRemove(nonce, out var pending) ||
+            pending.UserId != component.User.Id ||
+            pending.ExpiresAt <= DateTimeOffset.UtcNow)
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "This confirmation has expired or was already used.";
+                    properties.Components = BuildDashboardComponents();
+                });
+            return;
+        }
+
+        if (mode == "cancel")
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "Cancelled " + pending.Action +
+                        " for " + pending.ServerId + ".";
+                    properties.Components = BuildDashboardComponents();
+                });
+            return;
+        }
+
+        if (!_servers.TryGetValue(pending.ServerId, out var server))
+        {
+            await component.UpdateAsync(
+                properties =>
+                {
+                    properties.Content =
+                        "The requested server is no longer available.";
+                    properties.Components = BuildDashboardComponents();
+                });
+            return;
+        }
+
+        await component.UpdateAsync(
+            properties =>
+            {
+                properties.Content =
+                    pending.Action + " in progress for " +
+                    server.Profile.Name + "...";
+                properties.Components = new ComponentBuilder().Build();
+            });
+
+        _ = Task.Run(
+            () => RunConfirmedOperationAsync(
+                component,
+                pending,
+                server));
+    }
+
+    private async Task ExecuteSelectedProfileCommandAsync(
+        SocketMessageComponent component,
+        string panelNonce,
+        string commandName)
+    {
+        if (!TryResolvePanelSession(
+                component.User.Id,
+                panelNonce,
+                out _,
+                out var server))
+        {
+            await component.RespondAsync(
+                "This server panel has expired.",
+                ephemeral: true);
+            return;
+        }
+
+        if (!server.Profile.Commands.TryGetValue(commandName, out var template))
+        {
+            await component.RespondAsync(
+                "That command is no longer defined by this server profile.",
+                ephemeral: true);
+            return;
+        }
+
+        if (template.Contains("{args}", StringComparison.Ordinal))
+        {
+            var promptNonce = CreateNonce();
+            _commandPrompts[promptNonce] = new CommandPrompt(
+                component.User.Id,
+                server.Profile.Id,
+                commandName,
+                DateTimeOffset.UtcNow.Add(CommandPromptLifetime));
+
+            var title = server.Profile.Name + ": " + commandName;
+            if (title.Length > 45)
+            {
+                title = title[..45];
+            }
+
+            var modal = new ModalBuilder()
+                .WithTitle(title)
+                .WithCustomId("dedi:modal:" + promptNonce)
+                .AddTextInput(
+                    "Arguments",
+                    "arguments",
+                    TextInputStyle.Paragraph,
+                    placeholder: Truncate("Arguments for " + commandName, 100),
+                    maxLength: 4000,
+                    required: true)
+                .Build();
+
+            await component.RespondWithModalAsync(modal);
+            return;
+        }
+
+        await component.DeferAsync(ephemeral: true);
+
+        _ = Task.Run(
+            () => RunProfileCommandAsync(
+                component,
+                server,
+                commandName,
+                arguments: null));
+    }
+
+    private static async Task RunProfileCommandAsync(
+        SocketInteraction interaction,
+        IGameServer server,
+        string commandName,
+        string? arguments)
+    {
+        try
+        {
+            var result = await server.ExecuteAsync(commandName, arguments);
+
+            await interaction.ModifyOriginalResponseAsync(
+                properties =>
+                {
+                    properties.Content = result.Succeeded
+                        ? "Sent " + commandName + " to " + server.Profile.Name + "."
+                        : "Command failed: " + result.Error;
+                });
+        }
+        catch (Exception ex)
+        {
+            await interaction.ModifyOriginalResponseAsync(
+                properties =>
+                {
+                    properties.Content = "Command failed: " + ex.Message;
+                });
+        }
+    }
+
+    private MessageComponent BuildDashboardComponents()
+    {
+        var hasStartable = GetStartableServers().Count > 0;
+        var hasRunning = GetRunningServers().Count > 0;
+
+        return new ComponentBuilder()
+            .WithButton(
+                "Start Server",
+                DashboardStartId,
+                ButtonStyle.Success,
+                disabled: !hasStartable,
+                row: 0)
+            .WithButton(
+                "Manage Running",
+                DashboardManageId,
+                ButtonStyle.Primary,
+                disabled: !hasRunning,
+                row: 0)
+            .WithButton(
+                "Refresh",
+                DashboardRefreshId,
+                ButtonStyle.Secondary,
+                row: 0)
+            .Build();
+    }
+
+    private static MessageComponent BuildServerSelectComponents(
+        string customId,
+        string placeholder,
+        IReadOnlyList<IGameServer> servers)
+    {
+        var menu = new SelectMenuBuilder()
+            .WithCustomId(customId)
+            .WithPlaceholder(placeholder)
+            .WithMinValues(1)
+            .WithMaxValues(1);
+
+        foreach (var server in servers
+                     .Where(item => item.Profile.Id.Length <= 100)
+                     .Take(25))
+        {
+            menu.AddOption(
+                Truncate(
+                    server.Profile.Name + " (" + server.Profile.Id + ")",
+                    100),
+                server.Profile.Id,
+                Truncate("State: " + server.State, 100));
+        }
+
+        return new ComponentBuilder()
+            .WithSelectMenu(menu, row: 0)
+            .WithButton(
+                "Back",
+                DashboardRefreshId,
+                ButtonStyle.Secondary,
+                row: 1)
+            .Build();
+    }
+
+    private MessageComponent BuildServerPanelComponents(
+        string nonce,
+        IGameServer server)
+    {
+        var builder = new ComponentBuilder()
+            .WithButton(
+                "Restart",
+                "dedi:panel:restart:" + nonce,
+                ButtonStyle.Primary,
+                disabled: server.State != ServerState.Running,
+                row: 0)
+            .WithButton(
+                "Stop",
+                "dedi:panel:stop:" + nonce,
+                ButtonStyle.Danger,
+                disabled: server.State != ServerState.Running,
+                row: 0)
+            .WithButton(
+                "Refresh",
+                "dedi:panel:refresh:" + nonce,
+                ButtonStyle.Secondary,
+                row: 0)
+            .WithButton(
+                "Back",
+                "dedi:panel:back:" + nonce,
+                ButtonStyle.Secondary,
+                row: 0);
+
+        if (server.Profile.Commands.Count > 0 &&
+            server.State == ServerState.Running)
+        {
+            var menu = new SelectMenuBuilder()
+                .WithCustomId("dedi:commands:" + nonce)
+                .WithPlaceholder("Run a server command")
+                .WithMinValues(1)
+                .WithMaxValues(1);
+
+            foreach (var command in server.Profile.Commands
+                         .Where(pair => pair.Key.Length <= 100)
+                         .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                         .Take(25))
+            {
+                var requiresArguments = command.Value.Contains(
+                    "{args}",
+                    StringComparison.Ordinal);
+
+                menu.AddOption(
+                    Truncate(command.Key, 100),
+                    command.Key,
+                    requiresArguments
+                        ? "Requires arguments - opens a form"
+                        : Truncate(command.Value, 100));
+            }
+
+            builder.WithSelectMenu(menu, row: 1);
+        }
+
+        return builder.Build();
+    }
+
+    private static MessageComponent BuildConfirmationComponents(string nonce) =>
+        new ComponentBuilder()
+            .WithButton(
+                "Confirm",
+                "dedi:confirm:" + nonce,
+                ButtonStyle.Danger,
+                row: 0)
+            .WithButton(
+                "Cancel",
+                "dedi:cancel:" + nonce,
+                ButtonStyle.Secondary,
+                row: 0)
+            .Build();
+
+    private string BuildDashboardText()
+    {
+        var ordered = _servers.Values
+            .OrderBy(server => server.Profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var running = ordered.Count(
+            server => server.State == ServerState.Running);
+        var available = ordered.Count(
+            server => server.State is ServerState.Stopped or ServerState.Faulted);
+
+        var lines = ordered
+            .Take(20)
+            .Select(
+                server => Truncate(
+                    "- " + server.Profile.Name +
+                    " (" + server.Profile.Id + "): " + server.State,
+                    120))
+            .ToList();
+
+        if (ordered.Count > lines.Count)
+        {
+            lines.Add(
+                "- ...and " + (ordered.Count - lines.Count) +
+                " more profile(s)");
+        }
+
+        return
+            "OM_DEDI Control Panel\n" +
+            "Running: " + running +
+            " | Available to start: " + available +
+            " | Total: " + ordered.Count +
+            "\n\n" +
+            string.Join(Environment.NewLine, lines);
+    }
+
+    private static string BuildServerPanelText(IGameServer server)
+    {
+        var pid = server.ProcessId?.ToString() ?? "-";
+        var uptime = server.StartedAt is null
+            ? "-"
+            : FormatDuration(DateTimeOffset.UtcNow - server.StartedAt.Value);
+
+        return
+            server.Profile.Name + "\n" +
+            "ID: " + server.Profile.Id + "\n" +
+            "State: " + server.State + "\n" +
+            "PID: " + pid + "\n" +
+            "Uptime: " + uptime + "\n" +
+            "Transport: " + server.Profile.Transport.Type;
+    }
+
+    private IReadOnlyList<IGameServer> GetStartableServers() =>
+        _servers.Values
+            .Where(
+                server =>
+                    server.State is ServerState.Stopped or ServerState.Faulted)
+            .OrderBy(
+                server => server.Profile.Name,
+                StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IReadOnlyList<IGameServer> GetRunningServers() =>
+        _servers.Values
+            .Where(server => server.State == ServerState.Running)
+            .OrderBy(
+                server => server.Profile.Name,
+                StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private bool TryResolvePanelSession(
+        ulong userId,
+        string nonce,
+        out ServerPanelSession session,
+        out IGameServer server)
+    {
+        server = null!;
+
+        if (!_panels.TryGetValue(nonce, out var resolvedSession) ||
+            resolvedSession.UserId != userId ||
+            resolvedSession.ExpiresAt <= DateTimeOffset.UtcNow ||
+            !_servers.TryGetValue(
+                resolvedSession.ServerId,
+                out var resolvedServer))
+        {
+            session = null!;
+            _panels.TryRemove(nonce, out _);
+            return false;
+        }
+
+        session = resolvedSession;
+        server = resolvedServer;
+        return true;
+    }
+
+    private void CleanupExpiredSessions()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var pair in _pending)
+        {
+            if (pair.Value.ExpiresAt <= now)
+            {
+                _pending.TryRemove(pair.Key, out _);
+            }
+        }
+
+        foreach (var pair in _panels)
+        {
+            if (pair.Value.ExpiresAt <= now)
+            {
+                _panels.TryRemove(pair.Key, out _);
+            }
+        }
+
+        foreach (var pair in _commandPrompts)
+        {
+            if (pair.Value.ExpiresAt <= now)
+            {
+                _commandPrompts.TryRemove(pair.Key, out _);
+            }
+        }
+    }
+
+    private static string CreateNonce() => Guid.NewGuid().ToString("N");
+
+    private static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength
+            ? value
+            : value[..maxLength];
+
+    private static string FormatDuration(TimeSpan value)
+    {
+        if (value.TotalDays >= 1)
+        {
+            return
+                ((int)value.TotalDays) + "d " +
+                value.Hours + "h " +
+                value.Minutes + "m";
+        }
+
+        if (value.TotalHours >= 1)
+        {
+            return
+                ((int)value.TotalHours) + "h " +
+                value.Minutes + "m";
+        }
+
+        return Math.Max(0, (int)value.TotalMinutes) + "m";
     }
 
     private bool TryResolveServer(
@@ -611,5 +1207,16 @@ public sealed class DiscordControlService : IAsyncDisposable
         ulong UserId,
         string Action,
         string ServerId,
+        DateTimeOffset ExpiresAt);
+
+    private sealed record ServerPanelSession(
+        ulong UserId,
+        string ServerId,
+        DateTimeOffset ExpiresAt);
+
+    private sealed record CommandPrompt(
+        ulong UserId,
+        string ServerId,
+        string CommandName,
         DateTimeOffset ExpiresAt);
 }
