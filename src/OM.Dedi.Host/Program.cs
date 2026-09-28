@@ -306,10 +306,43 @@ static async Task RunProcessParityProbeAsync(
     Console.WriteLine(
         "[probe] Connect your client during the next 15 seconds.");
 
+    var startInfo = new ProcessStartInfo
+    {
+        FileName = profile.Process.Executable,
+        Arguments = profile.Process.Arguments,
+        WorkingDirectory = profile.Process.WorkingDirectory,
+        UseShellExecute = false,
+        RedirectStandardInput = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        CreateNoWindow = false
+    };
+
+    var removedEnvironmentVariables = startInfo.Environment.Keys
+        .Where(
+            key =>
+                key.StartsWith("DOTNET_", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("ASPNETCORE_", StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    foreach (var key in removedEnvironmentVariables)
+    {
+        startInfo.Environment.Remove(key);
+    }
+
+    Console.WriteLine(
+        removedEnvironmentVariables.Count == 0
+            ? "[probe] No inherited DOTNET_/ASPNETCORE_ variables were removed."
+            : "[probe] Removed inherited environment: " +
+              string.Join(", ", removedEnvironmentVariables));
+
     using var process = new Process
     {
-        StartInfo = new ProcessStartInfo
-        {
+        StartInfo = startInfo
+    };
+
+    /*
+    
             FileName = profile.Process.Executable,
             Arguments = profile.Process.Arguments,
             WorkingDirectory = profile.Process.WorkingDirectory,
@@ -320,6 +353,7 @@ static async Task RunProcessParityProbeAsync(
             CreateNoWindow = false
         }
     };
+    */
 
     if (!process.Start())
     {
