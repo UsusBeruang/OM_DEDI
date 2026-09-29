@@ -57,9 +57,40 @@ discord.example.json
 
 Requires the .NET 8 SDK.
 
+Local Debug build:
+
 ```powershell
-dotnet build OM_DEDI.sln
+dotnet build OM_DEDI.sln --configuration Debug
 ```
+
+Local Release build:
+
+```powershell
+dotnet build OM_DEDI.sln --configuration Release
+```
+
+The host executable is named `OM_DEDI.exe`.
+
+### CI pipelines
+
+`debug.yml` runs on pushes, pull requests, and manual dispatches. It restores the solution, builds Debug with warnings treated as errors, and uploads the host output as a 7-day `OM_DEDI-debug` artifact.
+
+`release.yml` runs on `main`, `v*` tags, and manual dispatches. It:
+
+- builds the full solution in Release;
+- publishes a self-contained Windows x64 host;
+- packages `OM_DEDI.exe`, its runtime files, `examples/`, `discord.example.json`, and this README;
+- uploads `OM_DEDI-win-x64.zip` as a 30-day workflow artifact;
+- creates a GitHub Release with generated notes when the workflow is triggered by a `v*` tag.
+
+For example:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Local-only files such as `discord.json`, `.env`, and custom profile directories are not included in release packages.
 
 ## Local host
 
