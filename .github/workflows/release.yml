@@ -1,0 +1,85 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-windows:
+    name: Publish win-x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore OM_DEDI.sln
+
+      - name: Build Release
+        run: dotnet build OM_DEDI.sln --configuration Release --no-restore
+
+      - name: Publish self-contained host
+        shell: pwsh
+        run: |
+          dotnet publish src/OM.Dedi.Host/OM.Dedi.Host.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            --no-restore `
+            --output artifacts/publish/win-x64
+
+      - name: Stage release package
+        shell: pwsh
+        run: |
+          $stage = "artifacts/package/OM_DEDI-win-x64"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          Copy-Item "artifacts/publish/win-x64/*" $stage -Recurse
+          Copy-Item "examples" "$stage/examples" -Recurse
+          Copy-Item "discord.example.json" "$stage/discord.example.json"
+          Copy-Item "README.md" "$stage/README.md"
+
+      - name: Create ZIP
+        shell: pwsh
+        run: |
+          $zip = "artifacts/OM_DEDI-win-x64.zip"
+          if (Test-Path $zip) {
+            Remove-Item $zip -Force
+          }
+
+          Compress-Archive `
+            -Path "artifacts/package/OM_DEDI-win-x64/*" `
+            -DestinationPath $zip `
+            -CompressionLevel Optimal
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OM_DEDI-win-x64
+          path: artifacts/OM_DEDI-win-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "artifacts/OM_DEDI-win-x64.zip" `
+            --title "OM_DEDI ${{ github.ref_name }}" `
+            --generate-notes
