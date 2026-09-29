@@ -32,3 +32,11 @@ jobs:
 
       - name: Build Debug
         run: dotnet build OM_DEDI.sln --configuration Debug --no-restore
+
+      - name: Upload Debug artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OM_DEDI-debug
+          path: src/OM.Dedi.Host/bin/Debug/net8.0/
+          if-no-files-found: error
+          retention-days: 7
